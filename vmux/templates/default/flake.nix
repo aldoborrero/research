@@ -1,11 +1,23 @@
 {
   description = "vmux — microVM development environment";
 
+  nixConfig = {
+    extra-substituters = [ "https://cache.numtide.com" ];
+    extra-trusted-public-keys = [
+      "niks3.numtide.com-1:DTx8wZduET09hRmMtKdQDxNNthLQETkc/yaX7M4qK0g="
+    ];
+  };
+
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
 
     microvm = {
       url = "github:astro/microvm.nix";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+
+    llm-agents = {
+      url = "github:numtide/llm-agents.nix";
       inputs.nixpkgs.follows = "nixpkgs";
     };
   };
@@ -15,10 +27,14 @@
       self,
       nixpkgs,
       microvm,
+      llm-agents,
     }:
     let
       system = "x86_64-linux";
-      pkgs = nixpkgs.legacyPackages.${system};
+      pkgs = import nixpkgs {
+        inherit system;
+        overlays = [ llm-agents.overlays.default ];
+      };
 
       # ---------- Tune these ----------
       vmName = "dev";
@@ -34,6 +50,7 @@
         inherit system;
         modules = [
           microvm.nixosModules.microvm
+          { nixpkgs.overlays = [ llm-agents.overlays.default ]; }
           {
             # ── Hypervisor ──────────────────────────────────────────────
             microvm = {
@@ -102,14 +119,19 @@
               # "ssh-ed25519 AAAA... you@host"
             ];
 
-            # ── Dev tools ───────────────────────────────────────────────
-            environment.systemPackages = with pkgs; [
-              git
-              neovim
-              helix
-              curl
-              jq
-            ];
+            # ── LLM agents (from numtide/llm-agents.nix) ────────────────
+            environment.systemPackages =
+              (with pkgs; [
+                git
+                neovim
+                helix
+                curl
+                jq
+              ])
+              ++ (with pkgs.llm-agents; [
+                claude-code
+                codex
+              ]);
 
             system.stateVersion = "24.11";
           }
