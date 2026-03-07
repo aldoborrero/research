@@ -1,0 +1,28 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/vmux-cli",
+    "crates/vmux-core",
+    "crates/vmux-wezterm",
+    "crates/vmux-secrets",
+    "crates/vmux-nix",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+rust-version = "1.75"
+
+[workspace.dependencies]
+tokio = { version = "1", features = ["full"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+clap = { version = "4", features = ["derive"] }
+zeroize = { version = "1", features = ["derive"] }
+toml = "0.8"
+ipnetwork = "0.20"
+scopeguard = "1"

@@ -1,0 +1,17 @@
+[package]
+name = "vmux-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "Core VM lifecycle orchestration for vmux"
+
+[dependencies]
+vmux-wezterm = { path = "../vmux-wezterm" }
+vmux-secrets = { path = "../vmux-secrets" }
+vmux-nix = { path = "../vmux-nix" }
+tokio.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+scopeguard.workspace = true

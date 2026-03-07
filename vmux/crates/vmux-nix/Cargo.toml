@@ -1,0 +1,15 @@
+[package]
+name = "vmux-nix"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "Nix flake introspection and microvm.nix lifecycle management for vmux"
+
+[dependencies]
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+ipnetwork.workspace = true
