@@ -37,6 +37,14 @@ enum Commands {
     Attach {
         /// VM name to attach to.
         name: String,
+
+        /// WezTerm layout (used if panes need to be rebuilt).
+        #[arg(long, default_value = "editor-agent")]
+        layout: String,
+
+        /// Path to vmux.toml config file (default: auto-detect).
+        #[arg(long, short = 'c')]
+        config: Option<PathBuf>,
     },
 }
 
@@ -357,9 +365,70 @@ async fn main() -> Result<()> {
             vm.stop().await?;
             println!("VM '{}' stopped.", name);
         }
-        Commands::Attach { name } => {
-            // TODO: Re-attach to a running VM's WezTerm session.
-            println!("Attaching to VM '{}'... (not yet implemented)", name);
+        Commands::Attach { name, layout, config: config_path } => {
+            let project = load_project_config(config_path.as_ref());
+            let vm_conf = project.vm.as_ref();
+            let ws = project.workspace.as_ref();
+            let tools = project.tools.as_ref();
+
+            let flake = vm_conf
+                .and_then(|v| v.flake.clone())
+                .map(PathBuf::from)
+                .unwrap_or_else(|| PathBuf::from("."));
+
+            let ip: Ipv4Addr = vm_conf
+                .and_then(|v| v.ip.clone())
+                .unwrap_or_else(|| "192.168.83.10".to_string())
+                .parse()
+                .context("invalid IP address in config")?;
+
+            let workspace = ws
+                .and_then(|w| w.host_path.as_ref())
+                .map(PathBuf::from)
+                .unwrap_or_else(|| PathBuf::from("."));
+            let workspace = std::fs::canonicalize(&workspace).unwrap_or(workspace);
+
+            let workspace_mount = ws
+                .and_then(|w| w.vm_mount.as_ref())
+                .map(PathBuf::from)
+                .unwrap_or_else(|| PathBuf::from("/workspace"));
+
+            let tool = tools
+                .and_then(|t| t.agent.as_deref())
+                .map(AgentTool::from_str);
+
+            let editor = tools
+                .and_then(|t| t.editor.as_deref())
+                .map(Editor::from_str);
+
+            let layout_str = if layout != "editor-agent" {
+                layout.as_str()
+            } else {
+                project
+                    .layout
+                    .as_ref()
+                    .and_then(|l| l.layout_type.as_deref())
+                    .unwrap_or("editor-agent")
+            };
+            let parsed_layout = Layout::from_str_loose(layout_str)
+                .context(format!("unknown layout: {}", layout_str))?;
+
+            let config = LaunchConfig {
+                name,
+                flake,
+                ip,
+                workspace,
+                workspace_mount,
+                secrets: Vec::new(),
+                tool,
+                editor,
+                layout: parsed_layout,
+                use_wezterm: true,
+                ephemeral: false,
+                ssh_timeout: Duration::from_secs(30),
+            };
+
+            vmux_core::attach(config).await?;
         }
     }
 

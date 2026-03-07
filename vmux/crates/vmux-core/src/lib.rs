@@ -5,7 +5,7 @@ use thiserror::Error;
 
 use vmux_nix::{MicroVm, MicroVmConfig, MicroVmError};
 use vmux_secrets::{SecretError, SecretResolver, SecretSpec};
-use vmux_wezterm::{Layout, PaneRole, WezTermError, WezTermSession};
+use vmux_wezterm::{Layout, PaneRole, SessionState, WezTermError, WezTermSession};
 
 /// Errors from the vmux launch orchestration.
 #[derive(Debug, Error)]
@@ -206,6 +206,78 @@ fn agent_cmd(vm: &MicroVm, config: &LaunchConfig) -> String {
     )
 }
 
+/// Send commands to WezTerm panes based on their roles.
+async fn send_pane_commands(
+    session: &WezTermSession,
+    vm: &MicroVm,
+    config: &LaunchConfig,
+) -> Result<(), LaunchError> {
+    if session.panes.contains_key(&PaneRole::Editor) {
+        session
+            .send_command(PaneRole::Editor, &editor_cmd(vm, config))
+            .await?;
+    }
+    if session.panes.contains_key(&PaneRole::Agent) {
+        session
+            .send_command(PaneRole::Agent, &agent_cmd(vm, config))
+            .await?;
+    }
+    if session.panes.contains_key(&PaneRole::Logs) {
+        let logs_cmd = format!("{} 'journalctl -f'", ssh_prefix(vm));
+        session
+            .send_command(PaneRole::Logs, &logs_cmd)
+            .await?;
+    }
+    Ok(())
+}
+
+/// Re-attach to a running VM's WezTerm session.
+///
+/// If the original panes are still alive, focuses them.
+/// If they're gone, rebuilds the layout with new panes connected to the VM.
+pub async fn attach(config: LaunchConfig) -> Result<(), LaunchError> {
+    // Create VM handle to check state and get SSH info.
+    let vm = MicroVm::from_config(MicroVmConfig {
+        name: config.name.clone(),
+        flake: config.flake.clone(),
+        ip: config.ip,
+        workspace_host: config.workspace.clone(),
+        workspace_vm: config.workspace_mount.clone(),
+    });
+
+    // Verify the VM is actually running.
+    let running = vm.is_running().await.unwrap_or(false);
+    if !running {
+        return Err(LaunchError::Config(format!(
+            "VM '{}' is not running. Use `vmux launch` to start it.",
+            config.name
+        )));
+    }
+
+    // Try to restore existing session; if panes are dead, rebuild.
+    let session = match WezTermSession::restore(&config.name).await {
+        Ok(session) => {
+            tracing::info!(
+                panes = session.panes.len(),
+                "re-attached to existing WezTerm panes"
+            );
+            session
+        }
+        Err(_) => {
+            tracing::info!("no live panes found, rebuilding WezTerm layout");
+            let session = WezTermSession::rebuild_layout(&config.name, config.layout).await?;
+            send_pane_commands(&session, &vm, &config).await?;
+            session
+        }
+    };
+
+    // Wait for the session to close.
+    session.wait_for_close().await?;
+    SessionState::remove(&config.name);
+
+    Ok(())
+}
+
 /// Run the full vmux launch sequence.
 pub async fn launch(config: LaunchConfig) -> Result<(), LaunchError> {
     // Step 1: Resolve secrets.
@@ -251,29 +323,17 @@ pub async fn launch(config: LaunchConfig) -> Result<(), LaunchError> {
     if config.use_wezterm {
         let session = WezTermSession::open(config.layout).await?;
 
+        // Persist session state for re-attach.
+        session.save_state(&config.name)?;
+
         // Send commands to panes based on layout.
-        if session.panes.contains_key(&PaneRole::Editor) {
-            session
-                .send_command(PaneRole::Editor, &editor_cmd(&vm, &config))
-                .await?;
-        }
-        if session.panes.contains_key(&PaneRole::Agent) {
-            session
-                .send_command(PaneRole::Agent, &agent_cmd(&vm, &config))
-                .await?;
-        }
-        if session.panes.contains_key(&PaneRole::Logs) {
-            let logs_cmd = format!(
-                "{} 'journalctl -f'",
-                ssh_prefix(&vm)
-            );
-            session
-                .send_command(PaneRole::Logs, &logs_cmd)
-                .await?;
-        }
+        send_pane_commands(&session, &vm, &config).await?;
 
         tracing::info!("WezTerm session opened, waiting for close...");
         session.wait_for_close().await?;
+
+        // Clean up saved state when session ends.
+        SessionState::remove(&config.name);
     } else {
         // No WezTerm mode — print connection info.
         println!("VM '{}' is running.", config.name);

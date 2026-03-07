@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::env;
+use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -89,6 +90,59 @@ struct WezTermPane {
     tab_id: u64,
     #[allow(dead_code)]
     window_id: u64,
+}
+
+/// Persisted session state for re-attach.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SessionState {
+    pub panes: HashMap<PaneRole, PaneId>,
+    pub socket: Option<String>,
+}
+
+impl SessionState {
+    /// Default state directory: `~/.local/state/vmux/sessions/`.
+    fn state_dir() -> Option<PathBuf> {
+        dirs::state_dir()
+            .or_else(|| dirs::home_dir().map(|h| h.join(".local/state")))
+            .map(|d| d.join("vmux/sessions"))
+    }
+
+    fn path_for(vm_name: &str) -> Option<PathBuf> {
+        Self::state_dir().map(|d| d.join(format!("{}.json", vm_name)))
+    }
+
+    /// Save session state to disk.
+    pub fn save(&self, vm_name: &str) -> Result<(), WezTermError> {
+        let path = Self::path_for(vm_name)
+            .ok_or_else(|| WezTermError::CliFailed("cannot determine state directory".into()))?;
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        let json = serde_json::to_string_pretty(self)
+            .map_err(|e| WezTermError::ParseError(e.to_string()))?;
+        std::fs::write(&path, json)?;
+        tracing::debug!(path = %path.display(), "saved session state");
+        Ok(())
+    }
+
+    /// Load session state from disk.
+    pub fn load(vm_name: &str) -> Result<Self, WezTermError> {
+        let path = Self::path_for(vm_name)
+            .ok_or_else(|| WezTermError::CliFailed("cannot determine state directory".into()))?;
+        let json = std::fs::read_to_string(&path).map_err(|_| {
+            WezTermError::CliFailed(format!("no saved session for VM '{}'", vm_name))
+        })?;
+        let state: SessionState =
+            serde_json::from_str(&json).map_err(|e| WezTermError::ParseError(e.to_string()))?;
+        Ok(state)
+    }
+
+    /// Remove session state from disk.
+    pub fn remove(vm_name: &str) {
+        if let Some(path) = Self::path_for(vm_name) {
+            let _ = std::fs::remove_file(path);
+        }
+    }
 }
 
 /// An active WezTerm session with tracked panes.
@@ -197,6 +251,103 @@ impl WezTermSession {
             }
         }
         Ok(())
+    }
+
+    /// Save the current session state to disk for later re-attach.
+    pub fn save_state(&self, vm_name: &str) -> Result<(), WezTermError> {
+        let state = SessionState {
+            panes: self.panes.clone(),
+            socket: self.socket.clone(),
+        };
+        state.save(vm_name)
+    }
+
+    /// Restore a session from saved state, validating that panes still exist.
+    ///
+    /// Returns the session with only the panes that are still alive in WezTerm.
+    pub async fn restore(vm_name: &str) -> Result<Self, WezTermError> {
+        let state = SessionState::load(vm_name)?;
+
+        let session = WezTermSession {
+            panes: state.panes.clone(),
+            socket: state.socket,
+        };
+
+        // Validate which panes are still alive.
+        let active = session.list_panes().await.unwrap_or_default();
+        let alive: HashMap<PaneRole, PaneId> = session
+            .panes
+            .into_iter()
+            .filter(|(_, id)| active.contains(id))
+            .collect();
+
+        if alive.is_empty() {
+            SessionState::remove(vm_name);
+            return Err(WezTermError::CliFailed(format!(
+                "no live panes found for VM '{}' — session has ended",
+                vm_name
+            )));
+        }
+
+        Ok(WezTermSession {
+            panes: alive,
+            socket: session.socket,
+        })
+    }
+
+    /// Re-create missing panes for the given layout, reusing any still-alive panes.
+    ///
+    /// Returns the rebuilt session with all roles populated.
+    pub async fn rebuild_layout(
+        vm_name: &str,
+        layout: Layout,
+    ) -> Result<Self, WezTermError> {
+        let socket = env::var("WEZTERM_UNIX_SOCKET").ok();
+
+        // Try to restore existing panes.
+        let existing = match Self::restore(vm_name).await {
+            Ok(s) => s.panes,
+            Err(_) => HashMap::new(),
+        };
+
+        let mut session = WezTermSession {
+            panes: HashMap::new(),
+            socket,
+        };
+
+        let roles = layout.roles();
+        if roles.is_empty() {
+            return Ok(session);
+        }
+
+        // For roles that already have a live pane, reuse them.
+        // For missing roles, spawn new panes.
+        let anchor_pane = if let Some(&id) = existing.values().next() {
+            // Reuse an existing pane as anchor for splits.
+            id
+        } else {
+            // No existing panes — spawn a fresh tab.
+            session.spawn_tab().await?
+        };
+
+        for (i, role) in roles.iter().enumerate() {
+            if let Some(&id) = existing.get(role) {
+                session.panes.insert(*role, id);
+            } else if i == 0 && existing.is_empty() {
+                // First role gets the anchor pane.
+                session.panes.insert(*role, anchor_pane);
+            } else {
+                let pane_id = session
+                    .split_pane(anchor_pane, SplitDirection::Right)
+                    .await?;
+                session.panes.insert(*role, pane_id);
+            }
+        }
+
+        // Save the new state.
+        session.save_state(vm_name)?;
+
+        Ok(session)
     }
 
     // --- Private helpers ---

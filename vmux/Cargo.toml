@@ -26,3 +26,4 @@ zeroize = { version = "1", features = ["derive"] }
 toml = "0.8"
 ipnetwork = "0.20"
 scopeguard = "1"
+dirs = "6"
