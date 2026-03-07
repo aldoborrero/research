@@ -2,9 +2,17 @@
   description = "vmux — microVM development environment";
 
   nixConfig = {
-    extra-substituters = [ "https://cache.numtide.com" ];
+    extra-substituters = [
+      "https://cache.numtide.com"
+      "https://nix-community.cachix.org"
+      "https://numtide.cachix.org"
+      "https://cache.garnix.io"
+    ];
     extra-trusted-public-keys = [
       "niks3.numtide.com-1:DTx8wZduET09hRmMtKdQDxNNthLQETkc/yaX7M4qK0g="
+      "nix-community.cachix.org-1:mB9FSh9qf2dCimDSUo8Zy7bkq5CX+/rkCWyvRCYg3Fs="
+      "numtide.cachix.org-1:2ps1kLBUWjxIneOy1Ber+6DVv0PNFURkZB7pR+YhDv4w="
+      "cache.garnix.io:CTFPyKSLcx5RMJKfLo5EEPUObbA78b0YQ2DTCJXqr9g="
     ];
   };
 
@@ -20,6 +28,11 @@
       url = "github:numtide/llm-agents.nix";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+
+    avim = {
+      url = "github:aldoborrero/avim.nix";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
   outputs =
@@ -28,6 +41,7 @@
       nixpkgs,
       microvm,
       llm-agents,
+      avim,
     }:
     let
       system = "x86_64-linux";
@@ -119,15 +133,16 @@
               # "ssh-ed25519 AAAA... you@host"
             ];
 
-            # ── LLM agents (from numtide/llm-agents.nix) ────────────────
+            # ── Dev tools & LLM agents ──────────────────────────────────
             environment.systemPackages =
               (with pkgs; [
                 git
-                neovim
-                helix
                 curl
                 jq
               ])
+              ++ [
+                avim.packages.${system}.avim
+              ]
               ++ (with pkgs.llm-agents; [
                 claude-code
                 codex

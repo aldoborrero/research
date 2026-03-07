@@ -11,7 +11,7 @@ vm_mount = "/workspace"        # mount point inside the VM
 
 [tools]
 agent = "claude"               # claude | aider | codex | <custom command>
-editor = "nvim"                # nvim | hx | emacs | <custom command>
+editor = "avim"                # avim | nvim | hx | emacs | <custom command>
 
 [layout]
 type = "editor-agent"          # editor-agent | agent-only | editor-only | full
