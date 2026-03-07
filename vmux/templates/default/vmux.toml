@@ -1,0 +1,28 @@
+# vmux configuration — see `vmux launch --help` for all options.
+
+[vm]
+name = "dev"
+flake = "."                    # path to the flake containing the microVM
+ip = "192.168.83.10"
+
+[workspace]
+host_path = "."                # host directory mounted into the VM
+vm_mount = "/workspace"        # mount point inside the VM
+
+[tools]
+agent = "claude"               # claude | aider | codex | <custom command>
+editor = "nvim"                # nvim | hx | emacs | <custom command>
+
+[layout]
+type = "editor-agent"          # editor-agent | agent-only | editor-only | full
+
+# Secrets are injected as env vars inside the VM.
+# Supported sources: op://…, sops:…, env:…, file:…
+
+# [[secrets]]
+# name = "ANTHROPIC_API_KEY"
+# source = "op://Private/anthropic/api-key"
+
+# [[secrets]]
+# name = "GITHUB_TOKEN"
+# source = "env:GITHUB_TOKEN"
