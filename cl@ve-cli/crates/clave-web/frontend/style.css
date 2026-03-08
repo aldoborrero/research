@@ -10,63 +10,22 @@
     border-radius: 0.5rem;
     color: rgba(191, 219, 254, 0.7);
     cursor: pointer;
-    transition: all 0.15s;
+    transition: all 0.15s ease;
     border: none;
     background: transparent;
     text-align: left;
 }
 .nav-btn:hover {
-    background: rgba(255, 255, 255, 0.1);
-    color: #fff;
+    background: rgba(255, 255, 255, 0.08);
+    color: rgba(255, 255, 255, 0.95);
 }
 .nav-btn.active {
-    background: rgba(255, 255, 255, 0.15);
+    background: rgba(255, 255, 255, 0.12);
     color: #fff;
+    box-shadow: inset 3px 0 0 0 #3b82f6;
 }
-
-/* Mobile nav buttons */
-.nav-btn-mobile {
-    white-space: nowrap;
-    padding: 0.375rem 0.75rem;
-    font-size: 0.75rem;
-    font-weight: 500;
-    border-radius: 9999px;
-    color: rgba(191, 219, 254, 0.7);
-    cursor: pointer;
-    transition: all 0.15s;
-    border: none;
-    background: transparent;
-}
-.nav-btn-mobile:hover {
-    background: rgba(255, 255, 255, 0.1);
-    color: #fff;
-}
-.nav-btn-mobile.active {
-    background: rgba(255, 255, 255, 0.2);
-    color: #fff;
-}
-
-/* Connection dot states */
-#connection-dot, #connection-dot-mobile {
-    transition: background-color 0.3s;
-}
-#connection-dot.connected, #connection-dot-mobile.connected {
-    background-color: #34d399;
-    box-shadow: 0 0 0 3px rgba(52, 211, 153, 0.3);
-}
-#connection-dot.disconnected, #connection-dot-mobile.disconnected {
-    background-color: #f87171;
-    box-shadow: 0 0 0 3px rgba(248, 113, 113, 0.3);
-}
-#connection-dot.reconnecting, #connection-dot-mobile.reconnecting {
-    background-color: #fbbf24;
-    box-shadow: 0 0 0 3px rgba(251, 191, 36, 0.3);
-    animation: pulse-dot 1.5s ease-in-out infinite;
-}
-
-@keyframes pulse-dot {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.4; }
+.nav-btn.active svg {
+    opacity: 1 !important;
 }
 
 /* Hide scrollbar on mobile tabs */
@@ -76,19 +35,6 @@
 }
 .scrollbar-hide::-webkit-scrollbar {
     display: none;
-}
-
-/* Result pre blocks */
-.result-block {
-    background: #1e293b;
-    color: #e2e8f0;
-    padding: 1rem;
-    font-size: 0.75rem;
-    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
-    line-height: 1.6;
-    overflow-x: auto;
-    margin: 0;
-    border-radius: 0 0 0.75rem 0.75rem;
 }
 
 /* Toast slide-up animation */
