@@ -24,9 +24,17 @@ pkgs.mkShell {
       pkgs.pkg-config
       pkgs.dbus
 
-      # Flutter + mobile development
+      # Flutter + desktop/mobile development
       pkgs.flutter
       pkgs.dart
+
+      # Flutter Linux desktop dependencies
+      pkgs.gtk3
+      pkgs.libsecret  # flutter_secure_storage on Linux
+      pkgs.jsoncpp    # flutter_secure_storage on Linux
+      pkgs.cmake
+      pkgs.ninja
+      pkgs.clang
 
       # APK reverse engineering tools
       pkgs.apktool

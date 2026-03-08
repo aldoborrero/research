@@ -96,12 +96,35 @@ class ClaveApp extends ConsumerWidget {
   }
 }
 
-/// Shell with bottom navigation bar for mobile, navigation rail for tablet.
+/// Shell with bottom navigation bar for mobile, navigation rail for desktop.
 class AppShell extends StatelessWidget {
   final Widget child;
   const AppShell({super.key, required this.child});
 
-  static const _destinations = [
+  static const _railDestinations = [
+    NavigationRailDestination(
+        icon: Icon(Icons.home_outlined),
+        selectedIcon: Icon(Icons.home),
+        label: Text('Home')),
+    NavigationRailDestination(
+        icon: Icon(Icons.notifications_outlined),
+        selectedIcon: Icon(Icons.notifications),
+        label: Text('Pending')),
+    NavigationRailDestination(
+        icon: Icon(Icons.pin_outlined),
+        selectedIcon: Icon(Icons.pin),
+        label: Text('PIN')),
+    NavigationRailDestination(
+        icon: Icon(Icons.history_outlined),
+        selectedIcon: Icon(Icons.history),
+        label: Text('History')),
+    NavigationRailDestination(
+        icon: Icon(Icons.settings_outlined),
+        selectedIcon: Icon(Icons.settings),
+        label: Text('Settings')),
+  ];
+
+  static const _barDestinations = [
     NavigationDestination(
         icon: Icon(Icons.home_outlined),
         selectedIcon: Icon(Icons.home),
@@ -134,12 +157,33 @@ class AppShell extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final width = MediaQuery.sizeOf(context).width;
+    final useRail = width >= 600;
+    final selectedIndex = _currentIndex(context);
+
+    if (useRail) {
+      return Scaffold(
+        body: Row(
+          children: [
+            NavigationRail(
+              selectedIndex: selectedIndex,
+              onDestinationSelected: (i) => context.go(_routes[i]),
+              labelType: NavigationRailLabelType.all,
+              destinations: _railDestinations,
+            ),
+            const VerticalDivider(thickness: 1, width: 1),
+            Expanded(child: child),
+          ],
+        ),
+      );
+    }
+
     return Scaffold(
       body: child,
       bottomNavigationBar: NavigationBar(
-        selectedIndex: _currentIndex(context),
+        selectedIndex: selectedIndex,
         onDestinationSelected: (i) => context.go(_routes[i]),
-        destinations: _destinations,
+        destinations: _barDestinations,
       ),
     );
   }
