@@ -22,6 +22,7 @@ pkgs.mkShell {
 
       pkgs.openssl
       pkgs.pkg-config
+      pkgs.dbus
 
       # Flutter + mobile development
       pkgs.flutter

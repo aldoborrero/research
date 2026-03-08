@@ -14,7 +14,12 @@ let
     strictDeps = true;
 
     buildInputs =
-      [ pkgs.openssl ]
+      [
+        pkgs.openssl
+      ]
+      ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isLinux [
+        pkgs.dbus
+      ]
       ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isDarwin [
         pkgs.libiconv
         pkgs.darwin.apple_sdk.frameworks.Security
