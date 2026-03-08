@@ -1,11 +1,15 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-class SettingsScreen extends StatelessWidget {
+import '../src/theme_provider.dart';
+
+class SettingsScreen extends ConsumerWidget {
   const SettingsScreen({super.key});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
+    final themeMode = ref.watch(themeModeProvider);
 
     return Scaffold(
       appBar: AppBar(title: const Text('Settings')),
@@ -30,6 +34,15 @@ class SettingsScreen extends StatelessWidget {
             onTap: () {
               // TODO: Navigate to QR screen
             },
+          ),
+          const Divider(),
+          _SectionHeader('Appearance'),
+          ListTile(
+            leading: Icon(_themeModeIcon(themeMode)),
+            title: const Text('Theme'),
+            subtitle: Text(_themeModeLabel(themeMode)),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => _showThemePicker(context, ref),
           ),
           const Divider(),
           _SectionHeader('Device'),
@@ -80,6 +93,43 @@ class SettingsScreen extends StatelessWidget {
             title: Text('Powered by'),
             subtitle: Text('Rust core (clave-core) via flutter_rust_bridge'),
           ),
+        ],
+      ),
+    );
+  }
+
+  static IconData _themeModeIcon(ThemeMode mode) => switch (mode) {
+        ThemeMode.system => Icons.brightness_auto,
+        ThemeMode.light => Icons.light_mode,
+        ThemeMode.dark => Icons.dark_mode,
+      };
+
+  static String _themeModeLabel(ThemeMode mode) => switch (mode) {
+        ThemeMode.system => 'System default',
+        ThemeMode.light => 'Light',
+        ThemeMode.dark => 'Dark',
+      };
+
+  void _showThemePicker(BuildContext context, WidgetRef ref) {
+    final notifier = ref.read(themeModeProvider.notifier);
+    final current = ref.read(themeModeProvider);
+
+    showDialog(
+      context: context,
+      builder: (ctx) => SimpleDialog(
+        title: const Text('Choose theme'),
+        children: [
+          for (final mode in ThemeMode.values)
+            RadioListTile<ThemeMode>(
+              title: Text(_themeModeLabel(mode)),
+              secondary: Icon(_themeModeIcon(mode)),
+              value: mode,
+              groupValue: current,
+              onChanged: (v) {
+                if (v != null) notifier.setMode(v);
+                Navigator.pop(ctx);
+              },
+            ),
         ],
       ),
     );

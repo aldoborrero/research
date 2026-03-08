@@ -8,6 +8,8 @@ import 'screens/pin_screen.dart';
 import 'screens/pending_screen.dart';
 import 'screens/history_screen.dart';
 import 'screens/settings_screen.dart';
+import 'screens/splash_screen.dart';
+import 'src/theme_provider.dart';
 
 void main() {
   // TODO: Initialize flutter_rust_bridge runtime here after codegen:
@@ -16,8 +18,9 @@ void main() {
 }
 
 final _router = GoRouter(
-  initialLocation: '/',
+  initialLocation: '/splash',
   routes: [
+    GoRoute(path: '/splash', builder: (_, __) => const SplashScreen()),
     ShellRoute(
       builder: (context, state, child) => AppShell(child: child),
       routes: [
@@ -32,14 +35,17 @@ final _router = GoRouter(
   ],
 );
 
-class ClaveApp extends StatelessWidget {
+class ClaveApp extends ConsumerWidget {
   const ClaveApp({super.key});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final themeMode = ref.watch(themeModeProvider);
+
     return MaterialApp.router(
       title: 'Cl@ve AEAT',
       debugShowCheckedModeBanner: false,
+      themeMode: themeMode,
       theme: ThemeData(
         colorSchemeSeed: const Color(0xFF2563EB),
         useMaterial3: true,

@@ -1,0 +1,119 @@
+import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
+
+/// Splash screen shown at startup.
+///
+/// Initialises the Rust bridge, checks session state, then navigates to
+/// the home screen (active session) or the activate screen (no session).
+class SplashScreen extends StatefulWidget {
+  const SplashScreen({super.key});
+
+  @override
+  State<SplashScreen> createState() => _SplashScreenState();
+}
+
+class _SplashScreenState extends State<SplashScreen>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+  late final Animation<double> _fadeIn;
+  String _statusText = 'Loading...';
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 800),
+    );
+    _fadeIn = CurvedAnimation(parent: _controller, curve: Curves.easeIn);
+    _controller.forward();
+    _init();
+  }
+
+  Future<void> _init() async {
+    try {
+      // TODO: Initialise flutter_rust_bridge runtime:
+      // await RustLib.init();
+      setState(() => _statusText = 'Checking session...');
+
+      // TODO: Check session via Rust bridge:
+      // final status = getStatus();
+      // final hasSession = status.active;
+      const hasSession = false;
+
+      // Brief delay so splash is visible even on fast devices.
+      await Future<void>.delayed(const Duration(milliseconds: 600));
+
+      if (!mounted) return;
+      if (hasSession) {
+        context.go('/');
+      } else {
+        context.go('/');
+      }
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _statusText = 'Error: $e');
+      // Fall through to home after a short delay.
+      await Future<void>.delayed(const Duration(seconds: 2));
+      if (mounted) context.go('/');
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Scaffold(
+      body: Center(
+        child: FadeTransition(
+          opacity: _fadeIn,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                Icons.shield,
+                size: 80,
+                color: theme.colorScheme.primary,
+              ),
+              const SizedBox(height: 24),
+              Text(
+                'Cl@ve',
+                style: theme.textTheme.headlineLarge?.copyWith(
+                  fontWeight: FontWeight.bold,
+                  color: theme.colorScheme.primary,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'AEAT',
+                style: theme.textTheme.titleMedium?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                  letterSpacing: 4,
+                ),
+              ),
+              const SizedBox(height: 48),
+              const SizedBox(
+                width: 24,
+                height: 24,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+              const SizedBox(height: 16),
+              Text(
+                _statusText,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
