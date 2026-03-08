@@ -125,6 +125,10 @@ def generate_303(
     config = _load_config(ctx.obj["config_path"])
     declarant = config["declarant"]
 
+    nombre_completo = (
+        declarant.get("apellidos", "") + " " + declarant.get("nombre", "")
+    ).strip()
+
     if from_quipu:
         quipu_cfg = QuipuConfig(
             api_key=config["quipu"]["api_key"],
@@ -136,46 +140,34 @@ def generate_303(
 
         data = Modelo303Data(
             nif=declarant["nif"],
-            name=declarant.get("apellidos", "") + " " + declarant.get("nombre", ""),
+            nombre_razon=nombre_completo,
             exercise=year,
             period=quarter,
             base_21=totals.total_income_gross,
-            vat_21=totals.total_vat_collected,
-            base_deductible_domestic=totals.total_expenses_gross,
-            vat_deductible_domestic=totals.total_vat_deductible,
+            cuota_21=totals.total_vat_collected,
+            base_deducible_interior=totals.total_expenses_gross,
+            cuota_deducible_interior=totals.total_vat_deductible,
             cuenta_iban=config.get("iban", ""),
         )
     else:
-        # Interactive input
         click.echo("Enter amounts for Modelo 303:")
         data = Modelo303Data(
             nif=declarant["nif"],
-            name=declarant.get("apellidos", "") + " " + declarant.get("nombre", ""),
+            nombre_razon=nombre_completo,
             exercise=year,
             period=quarter,
             base_21=Decimal(click.prompt("Base imponible 21%", default="0")),
-            vat_21=Decimal(click.prompt("Cuota IVA 21%", default="0")),
+            cuota_21=Decimal(click.prompt("Cuota IVA 21%", default="0")),
             base_10=Decimal(click.prompt("Base imponible 10%", default="0")),
-            vat_10=Decimal(click.prompt("Cuota IVA 10%", default="0")),
-            base_deductible_domestic=Decimal(
+            cuota_10=Decimal(click.prompt("Cuota IVA 10%", default="0")),
+            base_deducible_interior=Decimal(
                 click.prompt("Base IVA deducible (gastos)", default="0")
             ),
-            vat_deductible_domestic=Decimal(
+            cuota_deducible_interior=Decimal(
                 click.prompt("Cuota IVA deducible", default="0")
             ),
             cuenta_iban=config.get("iban", ""),
         )
-
-    # Determine declaration type
-    if data.resultado > 0:
-        data.tipo_declaracion = "I"  # Ingreso
-    elif data.resultado < 0:
-        if quarter == "4T":
-            data.tipo_declaracion = "D"  # Devolución (only in Q4)
-        else:
-            data.tipo_declaracion = "C"  # Compensar
-    else:
-        data.tipo_declaracion = "N"  # Negativa
 
     boe = generate_303_boe(data)
 
@@ -186,10 +178,11 @@ def generate_303(
         click.echo(boe)
 
     click.echo(f"\n--- Summary ---")
-    click.echo(f"IVA repercutido:  {data.total_vat_collected:>10.2f} €")
-    click.echo(f"IVA deducible:    {data.total_vat_deductible:>10.2f} €")
-    click.echo(f"Resultado (69):   {data.resultado:>10.2f} €")
-    click.echo(f"Tipo declaración: {data.tipo_declaracion}")
+    click.echo(f"IVA devengado [27]: {data.total_cuota_devengada:>10.2f} €")
+    click.echo(f"IVA deducible [45]: {data.total_a_deducir:>10.2f} €")
+    click.echo(f"Resultado     [69]: {data.resultado:>10.2f} €")
+    click.echo(f"Liquidación   [71]: {data.resultado_liquidacion:>10.2f} €")
+    click.echo(f"Tipo declaración:   {data.tipo_declaracion}")
 
 
 @generate.command("130")
