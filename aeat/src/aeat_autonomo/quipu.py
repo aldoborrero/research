@@ -93,12 +93,12 @@ class QuipuClient:
         if quarter not in (1, 2, 3, 4):
             raise ValueError(f"Invalid quarter: {quarter}")
 
-        # Quarter date ranges
+        # Quarter date ranges (inclusive start, exclusive end)
         month_start = (quarter - 1) * 3 + 1
         month_end = quarter * 3
         date_from = f"{year}-{month_start:02d}-01"
         if month_end == 12:
-            date_to = f"{year}-12-31"
+            date_to = f"{year + 1}-01-01"
         else:
             date_to = f"{year}-{month_end + 1:02d}-01"
 

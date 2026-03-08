@@ -20,31 +20,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from decimal import Decimal, ROUND_HALF_UP
 
-
-def _cents(amount: Decimal) -> int:
-    """Convert a Decimal euro amount to integer cents."""
-    return int((amount * 100).to_integral_value(rounding=ROUND_HALF_UP))
-
-
-def _num(amount: int, length: int = 17) -> str:
-    """Format unsigned numeric field: right-justified, zero-padded."""
-    return str(max(0, amount)).rjust(length, "0")[:length]
-
-
-def _signed(amount: int, length: int = 17) -> str:
-    """Format signed numeric field (type N).
-
-    First position: blank for positive/zero, 'N' for negative.
-    Remaining positions: absolute value, right-justified, zero-padded.
-    """
-    if amount < 0:
-        return "N" + str(abs(amount)).rjust(length - 1, "0")[:length - 1]
-    return " " + str(amount).rjust(length - 1, "0")[:length - 1]
-
-
-def _an(value: str, length: int) -> str:
-    """Format alphanumeric field: left-justified, space-padded, uppercase."""
-    return value.upper().ljust(length)[:length]
+from .boe import an as _an
+from .boe import cents as _cents
+from .boe import num as _num
+from .boe import signed as _signed
+from .boe import validate_iban, validate_nif
 
 
 @dataclass
@@ -87,6 +67,11 @@ class Modelo130Data:
 
     # Payment
     cuenta_iban: str = ""
+
+    def __post_init__(self) -> None:
+        validate_nif(self.nif)
+        if self.cuenta_iban:
+            self.cuenta_iban = validate_iban(self.cuenta_iban)
 
     # --- Computed properties following the official casilla chain ---
 

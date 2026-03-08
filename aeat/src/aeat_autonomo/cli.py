@@ -12,11 +12,13 @@ from __future__ import annotations
 
 import json
 import sys
+from datetime import date
 from decimal import Decimal
 from pathlib import Path
 
 import click
 
+from .boe import encode_boe
 from .config import CertificateConfig, QuipuConfig
 from .modelo130 import Modelo130Data, generate_130_boe
 from .modelo303 import Modelo303Data, generate_303_boe
@@ -173,7 +175,7 @@ def generate_303(
     boe = generate_303_boe(data)
 
     if output:
-        output.write_text(boe)
+        output.write_bytes(encode_boe(boe))
         click.echo(f"Written to {output}")
     else:
         click.echo(boe)
@@ -257,7 +259,7 @@ def generate_130(
     boe = generate_130_boe(data)
 
     if output:
-        output.write_text(boe)
+        output.write_bytes(encode_boe(boe))
         click.echo(f"Written to {output}")
     else:
         click.echo(boe)
@@ -273,7 +275,7 @@ def generate_130(
 
 
 @main.command("simulate")
-@click.option("--year", required=True, type=int, help="Fiscal year to simulate.")
+@click.option("--year", type=int, default=None, help="Fiscal year to simulate (default: current year).")
 @click.option(
     "--quarters",
     default="1T,2T,3T,4T",
@@ -282,7 +284,7 @@ def generate_130(
 @click.option("--output-dir", "-o", type=click.Path(path_type=Path), default=None,
               help="Directory to save generated BOE files.")
 @click.pass_context
-def simulate(ctx: click.Context, year: int, quarters: str, output_dir: Path | None) -> None:
+def simulate(ctx: click.Context, year: int | None, quarters: str, output_dir: Path | None) -> None:
     """Simulate a full fiscal year using Quipu data.
 
     Fetches historical data from Quipu for each quarter and generates
@@ -299,6 +301,9 @@ def simulate(ctx: click.Context, year: int, quarters: str, output_dir: Path | No
 
         aeat simulate --year 2024 -o ./sim-2024/
     """
+    if year is None:
+        year = date.today().year
+
     config = _load_config(ctx.obj["config_path"])
     declarant = config["declarant"]
     quipu_cfg = QuipuConfig(
@@ -424,8 +429,8 @@ def simulate(ctx: click.Context, year: int, quarters: str, output_dir: Path | No
             boe_130 = generate_130_boe(m130)
             path_303 = output_dir / f"modelo303_{year}_{q}.boe"
             path_130 = output_dir / f"modelo130_{year}_{q}.boe"
-            path_303.write_text(boe_303)
-            path_130.write_text(boe_130)
+            path_303.write_bytes(encode_boe(boe_303))
+            path_130.write_bytes(encode_boe(boe_130))
             click.echo(f"\n    Saved: {path_303}")
             click.echo(f"    Saved: {path_130}")
 

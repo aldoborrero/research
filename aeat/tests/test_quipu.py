@@ -195,7 +195,7 @@ class TestQuipuClientQuarterlyTotals:
             if "invoices" in str(r.url)
         ][0]
         assert "filter%5Bdate_from%5D=2026-10-01" in str(invoice_req.url)
-        assert "filter%5Bdate_to%5D=2026-12-31" in str(invoice_req.url)
+        assert "filter%5Bdate_to%5D=2027-01-01" in str(invoice_req.url)
 
     def test_aggregates_income_and_expenses(self, quipu_config, httpx_mock):
         _mock_quipu_calls(

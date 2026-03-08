@@ -311,12 +311,12 @@ class TestGenerate130PageRecord:
     def test_iban_at_correct_position(self):
         d = make_130(
             ingresos=Decimal("10000"),
-            cuenta_iban="ES12 3456 7890 1234 5678 9012",
+            cuenta_iban="ES60 0049 1500 0512 3456 7892",
         )
         record = generate_130_page_record(d)
         # IBAN at positions 446-479 (0-indexed: 445-478)
         iban_field = record[445:479]
-        assert iban_field.startswith("ES12345678901234567890")
+        assert iban_field.startswith("ES600049150005123456789")
 
     def test_complementaria_flag(self):
         d = make_130(

@@ -24,44 +24,15 @@ Reference: https://sede.agenciatributaria.gob.es/Sede/ayuda/disenos-registro/mod
 from __future__ import annotations
 
 from dataclasses import dataclass
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import Decimal
 
-
-def _cents(amount: Decimal) -> int:
-    """Convert a Decimal euro amount to integer cents."""
-    return int((amount * 100).to_integral_value(rounding=ROUND_HALF_UP))
-
-
-def _num(amount: int, length: int = 17) -> str:
-    """Format unsigned numeric field: right-justified, zero-padded."""
-    return str(max(0, amount)).rjust(length, "0")[:length]
-
-
-def _signed(amount: int, length: int = 17) -> str:
-    """Format signed numeric field.
-
-    First position: blank (positive/zero) or 'N' (negative).
-    Remaining: absolute value, right-justified, zero-padded.
-    """
-    if amount < 0:
-        return "N" + str(abs(amount)).rjust(length - 1, "0")[:length - 1]
-    return " " + str(amount).rjust(length - 1, "0")[:length - 1]
-
-
-def _pct(rate: Decimal) -> str:
-    """Format percentage as 5-char field (3 integer + 2 decimal, no separator)."""
-    cents = int((rate * 100).to_integral_value(rounding=ROUND_HALF_UP))
-    return str(cents).rjust(5, "0")[:5]
-
-
-def _an(value: str, length: int) -> str:
-    """Format alphanumeric field: left-justified, space-padded, uppercase."""
-    return value.upper().ljust(length)[:length]
-
-
-def _bool_yn(value: bool) -> str:
-    """Format boolean as '1' (yes) or '2' (no)."""
-    return "1" if value else "2"
+from .boe import an as _an
+from .boe import bool_yn as _bool_yn
+from .boe import cents as _cents
+from .boe import num as _num
+from .boe import pct as _pct
+from .boe import signed as _signed
+from .boe import validate_iban, validate_nif
 
 
 @dataclass
@@ -165,6 +136,11 @@ class Modelo303Data:
 
     # Payment
     cuenta_iban: str = ""
+
+    def __post_init__(self) -> None:
+        validate_nif(self.nif)
+        if self.cuenta_iban:
+            self.cuenta_iban = validate_iban(self.cuenta_iban)
 
     # --- Computed properties (casilla chain) ---
 

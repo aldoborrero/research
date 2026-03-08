@@ -371,9 +371,9 @@ class TestGeneratePage03:
         assert "X" in content
 
     def test_iban_included(self):
-        d = make_303(cuenta_iban="ES12 3456 7890 1234 5678 9012")
+        d = make_303(cuenta_iban="ES60 0049 1500 0512 3456 7892")
         page = _generate_page03(d)
-        assert "ES12345678901234567890" in page
+        assert "ES6000491500051234567892" in page
 
 
 class TestGenerateWrapper:

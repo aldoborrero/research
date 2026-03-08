@@ -24,7 +24,7 @@ def config_file(tmp_path):
             "api_key": "test-key",
             "api_secret": "test-secret",
         },
-        "iban": "ES12 3456 7890 1234 5678 9012",
+        "iban": "ES60 0049 1500 0512 3456 7892",
         "testing": True,
     }
     config_path = tmp_path / "aeat-config.json"
@@ -218,12 +218,12 @@ class TestSimulateCommand:
         assert (out_dir / "modelo303_2024_1T.boe").exists()
         assert (out_dir / "modelo130_2024_1T.boe").exists()
 
-        # BOE files should be valid (single line, starts with tag)
-        boe_303 = (out_dir / "modelo303_2024_1T.boe").read_text()
+        # BOE files should be valid ISO-8859-1 (single line, starts with tag)
+        boe_303 = (out_dir / "modelo303_2024_1T.boe").read_bytes().decode("iso-8859-1")
         assert boe_303.startswith("<T3030")
         assert "\n" not in boe_303
 
-        boe_130 = (out_dir / "modelo130_2024_1T.boe").read_text()
+        boe_130 = (out_dir / "modelo130_2024_1T.boe").read_bytes().decode("iso-8859-1")
         assert boe_130.startswith("<T1300")
         assert "\n" not in boe_130
 

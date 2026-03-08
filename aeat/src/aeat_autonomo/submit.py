@@ -130,11 +130,17 @@ class PresentacionDirectaClient:
         self._nif = nif_presentador
         self._nombre = nombre_presentador
         self._testing = testing
+        self._cert_pem: Path | None = None
+        self._key_pem: Path | None = None
 
         # Convert p12 to PEM for httpx
-        self._cert_pem, self._key_pem = _convert_p12_to_pem(
-            cert_config.pfx_path, cert_config.password
-        )
+        try:
+            self._cert_pem, self._key_pem = _convert_p12_to_pem(
+                cert_config.pfx_path, cert_config.password
+            )
+        except Exception:
+            self.close()
+            raise
 
     def _client(self) -> httpx.Client:
         return httpx.Client(
@@ -314,8 +320,10 @@ class PresentacionDirectaClient:
 
     def close(self) -> None:
         """Clean up temporary PEM files."""
-        self._cert_pem.unlink(missing_ok=True)
-        self._key_pem.unlink(missing_ok=True)
+        if self._cert_pem is not None:
+            self._cert_pem.unlink(missing_ok=True)
+        if self._key_pem is not None:
+            self._key_pem.unlink(missing_ok=True)
 
     def __enter__(self) -> PresentacionDirectaClient:
         return self
@@ -349,10 +357,16 @@ class TGVIOnlineClient:
         self._cert_config = cert_config
         self._testing = testing
         self._base_url = self.TEST_URL if testing else self.PROD_URL
+        self._cert_pem: Path | None = None
+        self._key_pem: Path | None = None
 
-        self._cert_pem, self._key_pem = _convert_p12_to_pem(
-            cert_config.pfx_path, cert_config.password
-        )
+        try:
+            self._cert_pem, self._key_pem = _convert_p12_to_pem(
+                cert_config.pfx_path, cert_config.password
+            )
+        except Exception:
+            self.close()
+            raise
 
     def submit(self, modelo: str, boe_bytes: bytes) -> SubmissionResult:
         """Submit an informative declaration via TGVI Online.
@@ -392,8 +406,10 @@ class TGVIOnlineClient:
         )
 
     def close(self) -> None:
-        self._cert_pem.unlink(missing_ok=True)
-        self._key_pem.unlink(missing_ok=True)
+        if self._cert_pem is not None:
+            self._cert_pem.unlink(missing_ok=True)
+        if self._key_pem is not None:
+            self._key_pem.unlink(missing_ok=True)
 
     def __enter__(self) -> TGVIOnlineClient:
         return self
