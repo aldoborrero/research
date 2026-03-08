@@ -9,7 +9,10 @@ Or via CLI:
 
 from __future__ import annotations
 
-from fastapi import FastAPI
+from decimal import InvalidOperation
+
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 
 from .auth import configure_auth
 from .config import ApiSettings, load_settings
@@ -51,6 +54,22 @@ def create_app(settings: ApiSettings | None = None) -> FastAPI:
             certificate_configured=bool(settings.cert_path and settings.cert_password),
             quipu_configured=bool(settings.quipu_key and settings.quipu_secret),
             testing_mode=settings.testing,
+        )
+
+    # Global exception handler: catch ValueError/InvalidOperation from data model
+    # validation (NIF, IBAN, Decimal parsing) and return clean 422 JSON errors.
+    @application.exception_handler(ValueError)
+    async def value_error_handler(request: Request, exc: ValueError) -> JSONResponse:
+        return JSONResponse(
+            status_code=422,
+            content={"error": "validation_error", "detail": str(exc)},
+        )
+
+    @application.exception_handler(InvalidOperation)
+    async def decimal_error_handler(request: Request, exc: InvalidOperation) -> JSONResponse:
+        return JSONResponse(
+            status_code=422,
+            content={"error": "validation_error", "detail": f"Invalid decimal value: {exc}"},
         )
 
     application.include_router(generate_router)

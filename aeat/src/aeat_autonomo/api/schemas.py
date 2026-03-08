@@ -2,12 +2,33 @@
 
 from __future__ import annotations
 
-from typing import Literal
+from decimal import Decimal, InvalidOperation
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, Field
-
+from pydantic import BaseModel, Field, field_validator
 
 Quarter = Literal["1T", "2T", "3T", "4T"]
+
+# Year bounds — AEAT electronic filing started in 2002
+MIN_YEAR = 2002
+MAX_YEAR = 2100
+
+
+def _validate_decimal(v: str, field_name: str) -> str:
+    """Validate that a string is a valid decimal amount."""
+    try:
+        d = Decimal(v)
+    except InvalidOperation:
+        raise ValueError(f"{field_name}: '{v}' is not a valid decimal number")
+    if d < 0:
+        raise ValueError(f"{field_name}: amount cannot be negative")
+    return v
+
+
+def _validate_year(v: int) -> int:
+    if v < MIN_YEAR or v > MAX_YEAR:
+        raise ValueError(f"year must be between {MIN_YEAR} and {MAX_YEAR}")
+    return v
 
 
 # --- Generate ---
@@ -25,6 +46,19 @@ class Generate303Request(BaseModel):
     cuota_4: str = "0"
     base_deducible_interior: str = "0"
     cuota_deducible_interior: str = "0"
+
+    @field_validator("year")
+    @classmethod
+    def check_year(cls, v: int) -> int:
+        return _validate_year(v)
+
+    @field_validator(
+        "base_21", "cuota_21", "base_10", "cuota_10", "base_4", "cuota_4",
+        "base_deducible_interior", "cuota_deducible_interior",
+    )
+    @classmethod
+    def check_amounts(cls, v: str, info: object) -> str:
+        return _validate_decimal(v, info.field_name)  # type: ignore[attr-defined]
 
 
 class Generate303Response(BaseModel):
@@ -50,6 +84,16 @@ class Generate130Request(BaseModel):
     gastos: str = "0"
     retenciones: str = "0"
 
+    @field_validator("year")
+    @classmethod
+    def check_year(cls, v: int) -> int:
+        return _validate_year(v)
+
+    @field_validator("prev_payments", "ingresos", "gastos", "retenciones")
+    @classmethod
+    def check_amounts(cls, v: str, info: object) -> str:
+        return _validate_decimal(v, info.field_name)  # type: ignore[attr-defined]
+
 
 class Generate130Response(BaseModel):
     boe_content: str
@@ -71,9 +115,14 @@ class Summary130(BaseModel):
 class SubmitRequest(BaseModel):
     year: int = Field(..., examples=[2026])
     quarter: Quarter = Field(..., examples=["1T"])
-    boe_content: str = Field(..., description="BOE flat file content.")
+    boe_content: str = Field(..., min_length=1, description="BOE flat file content.")
     nrc: str = Field("", description="NRC payment reference (required for tipo=Ingreso).")
     dry_run: bool = Field(False, description="Validate only, don't submit.")
+
+    @field_validator("year")
+    @classmethod
+    def check_year(cls, v: int) -> int:
+        return _validate_year(v)
 
 
 class SubmitResponse(BaseModel):
