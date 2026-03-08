@@ -1,17 +1,38 @@
 use crate::api::ClaveClient;
 use crate::error::Result;
 use crate::session::Session;
+use serde::Serialize;
+use tokio::sync::broadcast;
+use tokio_util::sync::CancellationToken;
 
-/// High-level authentication operations that combine multiple API calls.
+/// Events emitted by the authentication listener.
+#[derive(Debug, Clone, Serialize)]
+#[serde(tag = "type", content = "data")]
+pub enum AuthEvent {
+    /// Listener has started polling.
+    ListenerStarted,
+    /// A poll cycle found pending request data.
+    PendingData {
+        source: String,
+        data: serde_json::Value,
+    },
+    /// A poll cycle found no pending requests.
+    NoPending,
+    /// An error occurred during polling (non-fatal).
+    PollError { message: String },
+    /// Listener has stopped.
+    ListenerStopped,
+    /// Polling timed out after max attempts.
+    Timeout { message: String },
+}
 
-/// Full activation flow: starting → check NIF → activate.
+/// Full activation flow: starting -> check NIF -> activate.
 pub async fn activate_device(
     client: &ClaveClient,
     nif: &str,
     device_id: &str,
     device_password: &str,
 ) -> Result<Session> {
-    // Step 1: Initialize session
     tracing::info!("Initializing session with Cl@ve backend...");
     let starting = client.starting(device_id, nif, "").await?;
     if starting.status != "OK" {
@@ -23,12 +44,10 @@ pub async fn activate_device(
     }
     tracing::info!("Session initialized successfully");
 
-    // Step 2: Check if NIF is activated
     tracing::info!("Checking NIF activation status...");
     let activated = client.is_nif_activated(device_id, nif).await?;
     tracing::info!("NIF check status: {}", activated.status);
 
-    // Step 3: Activate authentication
     tracing::info!("Activating device authentication...");
     let _activate = client.activate_authentication(device_password, "").await?;
 
@@ -48,12 +67,10 @@ pub async fn activate_device(
 
 /// Request a Cl@ve PIN using saved session credentials.
 pub async fn request_pin(client: &ClaveClient, session: &Session) -> Result<(String, String)> {
-    // Initialize session first
     let _starting = client
         .starting(&session.device_id, &session.nif, "")
         .await?;
 
-    // Request PIN
     let resp = client
         .request_pin(&session.device_id, &session.device_password, &session.nif)
         .await?;
@@ -75,21 +92,15 @@ pub async fn authenticate_dni(
     client.authenticate_dni_nie(nif, fecha, soporte).await
 }
 
-/// Poll for pending authentication requests (replaces push notifications).
-///
-/// Since the CLI cannot receive Firebase push notifications, we poll
-/// `ClaveRequestAllOperationsSv` and `ClaveRequestStateSv` to discover
-/// pending Cl@ve Móvil authentication requests.
+/// Poll for pending authentication requests (single poll).
 pub async fn poll_pending_requests(
     client: &ClaveClient,
     session: &Session,
 ) -> Result<serde_json::Value> {
-    // Initialize session
     let _starting = client
         .starting(&session.device_id, &session.nif, "")
         .await?;
 
-    // Check request state first (faster, targeted check)
     let state = client
         .request_state(
             &session.device_id,
@@ -110,7 +121,6 @@ pub async fn poll_pending_requests(
         }
     }
 
-    // Fall back to all operations endpoint
     let timestamp = chrono::Utc::now().timestamp().to_string();
     let operations = client
         .request_all_operations(&session.device_id, &session.nif, &timestamp)
@@ -176,8 +186,7 @@ pub async fn reject_authentication(
     }))
 }
 
-/// Continuously poll for pending requests, returning when one is found.
-/// Polls every `interval_secs` seconds up to `max_attempts` times.
+/// Continuously poll for pending requests (blocking loop for CLI).
 pub async fn listen_for_requests(
     client: &ClaveClient,
     session: &Session,
@@ -189,7 +198,6 @@ pub async fn listen_for_requests(
 
         let result = poll_pending_requests(client, session).await?;
 
-        // Check if there's actual data (not null/empty)
         if let Some(data) = result.get("data") {
             if !data.is_null() {
                 let has_content = match data {
@@ -213,4 +221,56 @@ pub async fn listen_for_requests(
         "status": "timeout",
         "message": format!("No pending requests found after {max_attempts} attempts"),
     }))
+}
+
+/// Run an event-driven listener that sends events to a broadcast channel.
+/// Used by the web server for SSE streaming.
+pub async fn run_listener(
+    client: &ClaveClient,
+    session: &Session,
+    interval: std::time::Duration,
+    shutdown: CancellationToken,
+    tx: broadcast::Sender<AuthEvent>,
+) {
+    let _ = tx.send(AuthEvent::ListenerStarted);
+
+    loop {
+        tokio::select! {
+            _ = shutdown.cancelled() => {
+                let _ = tx.send(AuthEvent::ListenerStopped);
+                break;
+            }
+            _ = tokio::time::sleep(interval) => {
+                match poll_pending_requests(client, session).await {
+                    Ok(result) => {
+                        let has_data = result.get("data")
+                            .map(|d| !d.is_null() && match d {
+                                serde_json::Value::Object(m) => !m.is_empty(),
+                                serde_json::Value::Array(a) => !a.is_empty(),
+                                serde_json::Value::String(s) => !s.is_empty(),
+                                _ => true,
+                            })
+                            .unwrap_or(false);
+
+                        if has_data {
+                            let _ = tx.send(AuthEvent::PendingData {
+                                source: result.get("source")
+                                    .and_then(|s| s.as_str())
+                                    .unwrap_or("unknown")
+                                    .to_string(),
+                                data: result.get("data").cloned().unwrap_or(serde_json::Value::Null),
+                            });
+                        } else {
+                            let _ = tx.send(AuthEvent::NoPending);
+                        }
+                    }
+                    Err(e) => {
+                        let _ = tx.send(AuthEvent::PollError {
+                            message: e.to_string(),
+                        });
+                    }
+                }
+            }
+        }
+    }
 }

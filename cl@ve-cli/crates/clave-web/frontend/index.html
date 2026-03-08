@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cl@ve AEAT</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <header>
+        <h1>Cl@ve AEAT</h1>
+        <div id="status-bar">
+            <span id="connection-dot" class="dot disconnected"></span>
+            <span id="connection-text">Connecting...</span>
+            <span id="nif-display"></span>
+        </div>
+    </header>
+
+    <nav>
+        <button class="tab active" data-tab="pending">Pending Requests</button>
+        <button class="tab" data-tab="pin">Request PIN</button>
+        <button class="tab" data-tab="activate">Activate</button>
+        <button class="tab" data-tab="history">History</button>
+        <button class="tab" data-tab="mydata">My Data</button>
+        <button class="tab" data-tab="qr">QR Auth</button>
+        <button class="tab" data-tab="status">Status</button>
+    </nav>
+
+    <main>
+        <!-- Pending Requests -->
+        <section id="tab-pending" class="tab-content active">
+            <h2>Pending Authentication Requests</h2>
+            <p class="hint">Requests appear here in real-time via SSE polling.</p>
+            <div id="pending-list"></div>
+            <button onclick="refreshPending()" class="btn">Refresh Now</button>
+        </section>
+
+        <!-- Request PIN -->
+        <section id="tab-pin" class="tab-content">
+            <h2>Request Cl@ve PIN</h2>
+            <button onclick="requestPin()" class="btn btn-primary">Request PIN</button>
+            <div id="pin-result" class="result"></div>
+        </section>
+
+        <!-- Activate -->
+        <section id="tab-activate" class="tab-content">
+            <h2>Activate Device</h2>
+            <form id="activate-form" onsubmit="activateDevice(event)">
+                <label>NIF (DNI/NIE):
+                    <input type="text" id="activate-nif" required placeholder="12345678A">
+                </label>
+                <label>Password (optional):
+                    <input type="password" id="activate-password" placeholder="Auto-generated if empty">
+                </label>
+                <button type="submit" class="btn btn-primary">Activate</button>
+            </form>
+            <div id="activate-result" class="result"></div>
+        </section>
+
+        <!-- History -->
+        <section id="tab-history" class="tab-content">
+            <h2>Operations History</h2>
+            <button onclick="loadHistory()" class="btn">Load History</button>
+            <div id="history-result" class="result"></div>
+        </section>
+
+        <!-- My Data -->
+        <section id="tab-mydata" class="tab-content">
+            <h2>Account Data</h2>
+            <button onclick="loadMyData()" class="btn">Load My Data</button>
+            <div id="mydata-result" class="result"></div>
+        </section>
+
+        <!-- QR Auth -->
+        <section id="tab-qr" class="tab-content">
+            <h2>QR Authentication</h2>
+            <form id="qr-form" onsubmit="qrAuth(event)">
+                <label>QR Value:
+                    <input type="text" id="qr-value" required placeholder="Paste QR code data">
+                </label>
+                <button type="submit" class="btn btn-primary">Authenticate</button>
+            </form>
+            <div id="qr-result" class="result"></div>
+        </section>
+
+        <!-- Status -->
+        <section id="tab-status" class="tab-content">
+            <h2>Session Status</h2>
+            <button onclick="loadStatus()" class="btn">Refresh Status</button>
+            <div id="status-result" class="result"></div>
+        </section>
+    </main>
+
+    <div id="toast" class="toast hidden"></div>
+
+    <script src="app.js"></script>
+</body>
+</html>

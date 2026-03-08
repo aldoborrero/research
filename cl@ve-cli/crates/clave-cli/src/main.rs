@@ -1,17 +1,9 @@
 use clap::{Parser, Subcommand};
 use serde_json::json;
 
-mod api;
-mod auth;
-mod config;
-mod crypto;
-mod error;
-mod session;
-
-use api::ClaveClient;
-use config::validate_nif;
-use error::Result;
-use session::Session;
+use clave_core::config::validate_nif;
+use clave_core::error::{ClaveError, Result};
+use clave_core::{ClaveClient, Config, Session};
 
 #[derive(Parser)]
 #[command(
@@ -151,7 +143,7 @@ fn output(cli: &Cli, json_value: serde_json::Value) {
     }
 }
 
-fn output_error(cli: &Cli, err: &error::ClaveError) {
+fn output_error(cli: &Cli, err: &ClaveError) {
     if cli.plain {
         eprintln!("Error: {err}");
     } else {
@@ -171,11 +163,11 @@ async fn main() {
 
     if cli.verbose {
         tracing_subscriber::fmt()
-            .with_env_filter("clave_cli=debug,info")
+            .with_env_filter("clave=debug,clave_core=debug,info")
             .init();
     } else {
         tracing_subscriber::fmt()
-            .with_env_filter("clave_cli=warn")
+            .with_env_filter("clave=warn,clave_core=warn")
             .init();
     }
 
@@ -196,10 +188,10 @@ async fn run(cli: &Cli) -> Result<()> {
 
             let client = ClaveClient::new()?;
             let session =
-                auth::activate_device(&client, &nif, &device_id, &device_password).await?;
+                clave_core::auth::activate_device(&client, &nif, &device_id, &device_password)
+                    .await?;
 
-            // Save NIF to config
-            let mut cfg = config::Config::load()?;
+            let mut cfg = Config::load()?;
             cfg.nif = Some(nif.clone());
             cfg.device_id = Some(device_id.clone());
             cfg.save()?;
@@ -218,7 +210,7 @@ async fn run(cli: &Cli) -> Result<()> {
         Commands::Pin => {
             let session = Session::load()?;
             let client = ClaveClient::new()?;
-            let (pin, ttl) = auth::request_pin(&client, &session).await?;
+            let (pin, ttl) = clave_core::auth::request_pin(&client, &session).await?;
 
             output(
                 cli,
@@ -234,8 +226,8 @@ async fn run(cli: &Cli) -> Result<()> {
             let nif = if let Some(n) = nif {
                 validate_nif(n)?
             } else {
-                let cfg = config::Config::load()?;
-                cfg.nif.ok_or(error::ClaveError::Config(
+                let cfg = Config::load()?;
+                cfg.nif.ok_or(ClaveError::Config(
                     "No NIF configured. Use --nif or run `clave activate` first.".into(),
                 ))?
             };
@@ -243,7 +235,6 @@ async fn run(cli: &Cli) -> Result<()> {
             let client = ClaveClient::new()?;
             let device_id = uuid::Uuid::new_v4().to_string();
 
-            // Initialize first
             let _starting = client.starting(&device_id, &nif, "").await?;
             let resp = client.is_nif_activated(&device_id, &nif).await?;
 
@@ -264,7 +255,7 @@ async fn run(cli: &Cli) -> Result<()> {
         } => {
             let nif = validate_nif(nif)?;
             let client = ClaveClient::new()?;
-            let html = auth::authenticate_dni(&client, &nif, fecha, soporte).await?;
+            let html = clave_core::auth::authenticate_dni(&client, &nif, fecha, soporte).await?;
 
             output(
                 cli,
@@ -307,7 +298,6 @@ async fn run(cli: &Cli) -> Result<()> {
             let session = Session::load()?;
             let client = ClaveClient::new()?;
 
-            // Initialize session
             let _starting = client
                 .starting(&session.device_id, &session.nif, "")
                 .await?;
@@ -418,7 +408,8 @@ async fn run(cli: &Cli) -> Result<()> {
             }
 
             let result =
-                auth::listen_for_requests(&client, &session, *interval, *max_attempts).await?;
+                clave_core::auth::listen_for_requests(&client, &session, *interval, *max_attempts)
+                    .await?;
 
             output(cli, result);
         }
@@ -428,7 +419,8 @@ async fn run(cli: &Cli) -> Result<()> {
             let client = ClaveClient::new()?;
 
             let result =
-                auth::confirm_authentication(&client, &session, token, idp_code).await?;
+                clave_core::auth::confirm_authentication(&client, &session, token, idp_code)
+                    .await?;
 
             output(cli, result);
         }
@@ -438,7 +430,8 @@ async fn run(cli: &Cli) -> Result<()> {
             let client = ClaveClient::new()?;
 
             let result =
-                auth::reject_authentication(&client, &session, token, idp_code).await?;
+                clave_core::auth::reject_authentication(&client, &session, token, idp_code)
+                    .await?;
 
             output(cli, result);
         }
@@ -447,7 +440,7 @@ async fn run(cli: &Cli) -> Result<()> {
             let session = Session::load()?;
             let client = ClaveClient::new()?;
 
-            let result = auth::poll_pending_requests(&client, &session).await?;
+            let result = clave_core::auth::poll_pending_requests(&client, &session).await?;
 
             output(cli, result);
         }

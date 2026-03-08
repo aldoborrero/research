@@ -28,14 +28,30 @@ let
 
   cargoArtifacts = craneLib.buildDepsOnly commonArgs;
 in
-craneLib.buildPackage (
-  commonArgs
-  // {
-    inherit cargoArtifacts;
+{
+  clave-cli = craneLib.buildPackage (
+    commonArgs
+    // {
+      inherit cargoArtifacts;
+      cargoExtraArgs = "--package clave-cli";
 
-    meta = {
-      description = "CLI tool for Cl@ve AEAT authentication (Spain's digital identity system)";
-      mainProgram = "clave";
-    };
-  }
-)
+      meta = {
+        description = "CLI tool for Cl@ve AEAT authentication (Spain's digital identity system)";
+        mainProgram = "clave";
+      };
+    }
+  );
+
+  clave-web = craneLib.buildPackage (
+    commonArgs
+    // {
+      inherit cargoArtifacts;
+      cargoExtraArgs = "--package clave-web";
+
+      meta = {
+        description = "Web interface for Cl@ve AEAT authentication";
+        mainProgram = "clave-web";
+      };
+    }
+  );
+}

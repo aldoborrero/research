@@ -1,6 +1,6 @@
-# clave-cli
+# clave
 
-CLI tool for **Cl@ve AEAT** authentication — Spain's digital identity system used for interacting with public administration services.
+CLI and web tools for **Cl@ve AEAT** authentication — Spain's digital identity system used for interacting with public administration services.
 
 ## Features
 
@@ -13,13 +13,26 @@ CLI tool for **Cl@ve AEAT** authentication — Spain's digital identity system u
 - **Operations history**: Browse past authentication operations
 - **Structured output**: JSON by default, `--plain` for human-readable text
 - **Secure storage**: Credentials stored via system keyring (fallback to XDG data dir)
+- **Web interface**: Browser-based UI with real-time SSE updates for pending requests
+
+## Project Structure
+
+This is a Cargo workspace with three crates:
+
+```
+crates/
+├── clave-core/   # Shared library: API client, auth flows, config, crypto, session
+├── clave-cli/    # CLI binary (`clave`)
+└── clave-web/    # Web server binary (`clave-web`) with embedded frontend
+```
 
 ## Installation
 
 ### With Nix (recommended)
 
 ```bash
-nix run github:aldoborrero/research#clave-cli
+nix run github:aldoborrero/research#clave-cli   # CLI
+nix run github:aldoborrero/research#clave-web   # Web UI
 ```
 
 ### Development shell
@@ -32,7 +45,8 @@ cargo build --release
 ### From source
 
 ```bash
-cargo install --path .
+cargo install --path crates/clave-cli   # CLI
+cargo install --path crates/clave-web   # Web UI
 ```
 
 ## Usage
@@ -119,6 +133,20 @@ clave qr --value "qr-code-content"
 ```bash
 clave logout
 ```
+
+### Web interface
+
+Start the web server (requires an active session from `clave activate`):
+
+```bash
+clave-web
+```
+
+Then open `http://127.0.0.1:3000` in your browser. The web UI provides:
+
+- Real-time pending request notifications via Server-Sent Events (SSE)
+- PIN requests, QR auth, history, and account data views
+- Confirm/reject pending authentication requests from the browser
 
 ## Output formats
 
