@@ -93,6 +93,42 @@ enum Commands {
         #[arg(short, long)]
         value: String,
     },
+
+    /// Listen for pending Cl@ve Móvil authentication requests (polls server)
+    Listen {
+        /// Polling interval in seconds
+        #[arg(short, long, default_value = "5")]
+        interval: u64,
+
+        /// Maximum number of polling attempts (0 = unlimited)
+        #[arg(short, long, default_value = "60")]
+        max_attempts: u32,
+    },
+
+    /// Confirm a pending Cl@ve Móvil authentication request
+    Confirm {
+        /// Cl@ve Móvil token from the pending request
+        #[arg(short, long)]
+        token: String,
+
+        /// Identity Provider code from the pending request
+        #[arg(short = 'i', long)]
+        idp_code: String,
+    },
+
+    /// Reject a pending Cl@ve Móvil authentication request
+    Reject {
+        /// Cl@ve Móvil token from the pending request
+        #[arg(short, long)]
+        token: String,
+
+        /// Identity Provider code from the pending request
+        #[arg(short = 'i', long)]
+        idp_code: String,
+    },
+
+    /// Check for pending authentication requests (single poll)
+    Pending,
 }
 
 fn output(cli: &Cli, json_value: serde_json::Value) {
@@ -367,6 +403,53 @@ async fn run(cli: &Cli) -> Result<()> {
                     "response": resp.respuesta,
                 }),
             );
+        }
+
+        Commands::Listen {
+            interval,
+            max_attempts,
+        } => {
+            let session = Session::load()?;
+            let client = ClaveClient::new()?;
+
+            if !cli.plain {
+                eprintln!("Listening for pending Cl@ve Móvil requests (polling every {interval}s, max {max_attempts} attempts)...");
+                eprintln!("Press Ctrl+C to stop.");
+            }
+
+            let result =
+                auth::listen_for_requests(&client, &session, *interval, *max_attempts).await?;
+
+            output(cli, result);
+        }
+
+        Commands::Confirm { token, idp_code } => {
+            let session = Session::load()?;
+            let client = ClaveClient::new()?;
+
+            let result =
+                auth::confirm_authentication(&client, &session, token, idp_code).await?;
+
+            output(cli, result);
+        }
+
+        Commands::Reject { token, idp_code } => {
+            let session = Session::load()?;
+            let client = ClaveClient::new()?;
+
+            let result =
+                auth::reject_authentication(&client, &session, token, idp_code).await?;
+
+            output(cli, result);
+        }
+
+        Commands::Pending => {
+            let session = Session::load()?;
+            let client = ClaveClient::new()?;
+
+            let result = auth::poll_pending_requests(&client, &session).await?;
+
+            output(cli, result);
         }
     }
 

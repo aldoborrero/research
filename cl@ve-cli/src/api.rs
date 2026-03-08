@@ -468,6 +468,82 @@ impl ClaveClient {
         Ok(resp.json().await?)
     }
 
+    /// Register a push notification token with the server.
+    pub async fn set_firebase_token(
+        &self,
+        device_id: &str,
+        nif: &str,
+        token_push: &str,
+    ) -> Result<ApiResponse<serde_json::Value>> {
+        let url = format!("{BASE_URL}/wlpl/MOVI-P24H/ClaveSetFirebaseTokenSv");
+        let resp = self
+            .client
+            .post(&url)
+            .header("TrazasApp", &self.trace_id)
+            .form(&[
+                ("device_id", device_id),
+                ("NIF", nif),
+                ("sistema_operativo", OS_NAME),
+                ("version_os", OS_VERSION),
+                ("version_app", APP_VERSION),
+                ("token_push", token_push),
+            ])
+            .send()
+            .await?;
+
+        Ok(resp.json().await?)
+    }
+
+    /// Check current request state (pending authentication requests).
+    pub async fn request_state(
+        &self,
+        device_id: &str,
+        device_password: &str,
+        nif: &str,
+    ) -> Result<ApiResponse<serde_json::Value>> {
+        let url = format!("{BASE_URL_WWW12}/wlpl/MOVI-P24H/ClaveRequestStateSv");
+        let resp = self
+            .client
+            .post(&url)
+            .header("TrazasApp", &self.trace_id)
+            .form(&[
+                ("device_id", device_id),
+                ("user_password", device_password),
+                ("NIF", nif),
+                ("sistema_operativo", OS_NAME),
+                ("version_os", OS_VERSION),
+                ("version_app", APP_VERSION),
+            ])
+            .send()
+            .await?;
+
+        Ok(resp.json().await?)
+    }
+
+    /// Get pending market petitions.
+    pub async fn get_pending_petitions(
+        &self,
+        device_id: &str,
+        nif: &str,
+    ) -> Result<ApiResponse<serde_json::Value>> {
+        let url = format!("{BASE_URL}/wlpl/MOVI-P24H/ObtenerPeticionesMarketsSv");
+        let resp = self
+            .client
+            .post(&url)
+            .header("TrazasApp", &self.trace_id)
+            .form(&[
+                ("device_id", device_id),
+                ("NIF", nif),
+                ("sistema_operativo", OS_NAME),
+                ("version_os", OS_VERSION),
+                ("version_app", APP_VERSION),
+            ])
+            .send()
+            .await?;
+
+        Ok(resp.json().await?)
+    }
+
     /// QR code authentication.
     pub async fn qr_authenticate(
         &self,

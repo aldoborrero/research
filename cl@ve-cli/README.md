@@ -79,6 +79,35 @@ clave my-data
 clave history
 ```
 
+### Cl@ve Móvil (push notification replacement)
+
+Since the CLI cannot receive Firebase push notifications, it polls the server instead.
+
+**Check for pending requests (single poll):**
+
+```bash
+clave pending
+```
+
+**Listen continuously for authentication requests:**
+
+```bash
+clave listen                          # default: 5s interval, 60 attempts
+clave listen --interval 3 --max-attempts 120  # custom polling
+```
+
+**Confirm a pending authentication request:**
+
+```bash
+clave confirm --token <TOKEN> --idp-code <IDP_CODE>
+```
+
+**Reject a pending authentication request:**
+
+```bash
+clave reject --token <TOKEN> --idp-code <IDP_CODE>
+```
+
 ### QR authentication
 
 ```bash
