@@ -1,5 +1,5 @@
 {
-  description = "Cl@ve AEAT CLI - Spain's digital identity authentication tool";
+  description = "Cl@ve AEAT - Spain's digital identity authentication tools (CLI + Web)";
 
   inputs = {
     blueprint.url = "github:numtide/blueprint";
