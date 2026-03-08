@@ -152,8 +152,24 @@ context = browser.new_context(
 **Pros:** Native .p12 support, multi-browser, auto-waiting, sync+async Python
 APIs, active development.
 
-**Cons:** Nix packaging requires workarounds for browser binaries, some reported
-client certificate bugs, heavy dependency footprint.
+**Cons:** Nix packaging requires workarounds for browser binaries, heavy
+dependency footprint.
+
+**Known client certificate issues (as of 2025-2026):**
+
+- Using `channel: 'chrome'` (system Chrome) instead of bundled Chromium can
+  cause certificate selection popups or "No client certificate provided" errors
+  ([#33230](https://github.com/microsoft/playwright/issues/33230))
+- Certificates signed by private CAs may fail with SSL handshake errors; the
+  `ca` argument is not exposed
+  ([#33414](https://github.com/microsoft/playwright/issues/33414))
+- Some Keycloak/CBA flows fail to show certificate dialog
+  ([#33563](https://github.com/microsoft/playwright/issues/33563))
+- Playwright implements client certs via a SOCKS proxy interceptor, which
+  explains some edge cases with non-bundled browsers
+- **Recommendation:** Use Playwright's bundled Chromium (`browserName:
+  'chromium'` without `channel`) and set `ignore_https_errors=True` for best
+  client certificate support
 
 ### 3.3 Selenium (Fallback)
 
