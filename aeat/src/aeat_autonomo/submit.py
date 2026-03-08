@@ -336,7 +336,7 @@ class TGVIOnlineClient:
         "/wlpl/inwinvoc/es.aeat.dit.adi.eama.jdit.ws.DRServicioDeclaracionREST"
     )
     TEST_URL = (
-        "https://prewww2.aeat.es"
+        "https://prewww1.aeat.es"
         "/wlpl/inwinvoc/es.aeat.dit.adi.eama.jdit.ws.DRServicioDeclaracionREST"
     )
 

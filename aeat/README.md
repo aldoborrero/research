@@ -108,7 +108,7 @@ Protocol: HTTP file upload with client certificate.
 | Service | Environment | URL |
 |---------|-------------|-----|
 | Submit | Production | `https://www1.agenciatributaria.gob.es/wlpl/inwinvoc/es.aeat.dit.adi.eama.jdit.ws.DRServicioDeclaracionREST` |
-| Submit | Testing | `https://prewww2.aeat.es/wlpl/inwinvoc/es.aeat.dit.adi.eama.jdit.ws.DRServicioDeclaracionREST` |
+| Submit | Testing | `https://prewww1.aeat.es/wlpl/inwinvoc/es.aeat.dit.adi.eama.jdit.ws.DRServicioDeclaracionREST` |
 
 ### Testing with the Pre-production Environment
 

@@ -52,7 +52,7 @@ class AEATEndpoints:
             presentacion="https://prewww1.aeat.es/wlpl/PFTW-PICW/PresBasicaDos",
             validacion="https://prewww2.aeat.es/wlpl/PFTW-PICW/ServValiDos",
             consulta="https://prewww1.aeat.es/wlpl/SCEJ-MANT/ConsultaExt",
-            tgvi_online="https://prewww2.aeat.es/wlpl/inwinvoc/es.aeat.dit.adi.eama.jdit.ws.DRServicioDeclaracionREST",
+            tgvi_online="https://prewww1.aeat.es/wlpl/inwinvoc/es.aeat.dit.adi.eama.jdit.ws.DRServicioDeclaracionREST",
         )
 
 
