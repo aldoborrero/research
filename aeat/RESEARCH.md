@@ -209,44 +209,154 @@ Simplest approach for non-browser HTTP interactions. Perfect for SOAP endpoints
 | [josemmo/Verifactu-PHP](https://github.com/josemmo/Verifactu-PHP) | PHP | PHP VeriFactu implementation |
 | [fawno/AEAT](https://github.com/fawno/AEAT) | PHP | PHP classes for AEAT web services |
 
-## 5. Recommended Implementation Plan
+## 5. Target Models — Per-Model Analysis
 
-### Phase 1: Certificate Auth + Direct API Access
+### 5.1 Modelo 347 — Declaración anual de operaciones con terceras personas
 
-1. Set up Nix development environment with Python, `requests-pkcs12`, and `zeep`
-2. Verify certificate authentication works against AEAT test environment
-3. Implement SII and/or TGVI Online submission via SOAP/HTTP
-4. **Prerequisite:** User must have an FNMT `.p12` certificate available
+- **What:** Annual declaration of operations with third parties exceeding
+  €3,005.06
+- **Frequency:** Annual (February)
+- **Submission method:** **TGVI Online** (machine-to-machine, confirmed)
+- **File format:** BOE/ASCII plain text, ISO-8859-1 encoding
+- **Diseño de registro:** [Modelos 300-399](https://sede.agenciatributaria.gob.es/Sede/ayuda/disenos-registro/modelos-300-399.html)
+  — "347 - Ejercicio 2025 y siguientes" (PDF, 332 KB)
+- **Record types:** Type 1 (header, one per declaration) + Type 2 (one per
+  declared party/property)
+- **Automation path:** `requests-pkcs12` → TGVI Online HTTP upload
+- **Complexity:** Medium — file generation is the main task
 
-### Phase 2: Browser Automation (if needed)
+### 5.2 Modelo 349 — Declaración recapitulativa de operaciones intracomunitarias
 
-1. Set up Playwright with Nix (using `playwright-driver.browsers`)
-2. Configure client certificate for sede electronica
-3. Automate Modelo 303 submission via the web form
-4. Handle form navigation, field population, and submission confirmation
+- **What:** Recapitulative declaration of intra-community operations
+- **Frequency:** Monthly or Quarterly (depending on volume)
+- **Deadline:** Within 20 days after the period ends
+- **Submission method:** **TGVI Online** (machine-to-machine, confirmed)
+- **File format:** BOE/ASCII plain text, ISO-8859-1 encoding
+- **Diseño de registro:** [Modelos 300-399](https://sede.agenciatributaria.gob.es/Sede/ayuda/disenos-registro/modelos-300-399.html)
+  — "349 - Orden HAC/174/2020" (PDF, 894 KB)
+- **Automation path:** `requests-pkcs12` → TGVI Online HTTP upload
+- **Complexity:** Medium — similar to 347
 
-### Phase 3: Full Pipeline
+### 5.3 Modelo 303 — IVA Autoliquidación trimestral
 
-1. Data ingestion from accounting sources
-2. Form generation + automated submission
-3. Confirmation retrieval and archival
+- **What:** Quarterly VAT self-assessment
+- **Frequency:** Quarterly (1-20 Apr/Jul/Oct, 1-30 Jan for Q4)
+- **Submission method:** **Web form only** (sede electrónica) — no SOAP API
+- **File format:** BOE format for import into the web form (`.303` extension).
+  Can be generated externally and imported via "Importar" button
+- **Diseño de registro:** [Modelos 300-399](https://sede.agenciatributaria.gob.es/Sede/ayuda/disenos-registro/modelos-300-399.html)
+  — "303 - Ejercicio 2025" (XLSX, 380 KB)
+- **Pre303Ayuda:** AEAT's help service can pre-fill fields from SII data or
+  imported libro registro
+- **Automation path:** Generate BOE file → Playwright imports into web form →
+  submit. Also supports "presentación por lotes"
+- **API coming:** New XML/WSDL-based API expected **January 2027** (Orden
+  HAC/747/2025)
+- **Complexity:** High — requires browser automation for submission
+
+### 5.4 Modelo 390 — Resumen anual IVA
+
+- **What:** Annual VAT summary declaration
+- **Frequency:** Annual (1-30 January)
+- **Submission method:** **Web form with file import** (sede electrónica)
+- **File format:** BOE format (`.390` extension), can import via "Leer
+  declaración"
+- **Diseño de registro:** [Modelos 300-399](https://sede.agenciatributaria.gob.es/Sede/ayuda/disenos-registro/modelos-300-399.html)
+  — "390 - Ejercicio 2025" (XLSX, 544 KB)
+- **Automation path:** Generate BOE file → Playwright imports into web form →
+  submit
+- **Complexity:** High — similar to 303 (browser automation needed)
+
+### 5.5 Modelo 130 — Pago fraccionado IRPF (estimación directa)
+
+- **What:** Quarterly IRPF advance payment for self-employed (direct estimation)
+- **Frequency:** Quarterly (same deadlines as 303)
+- **Submission method:** **Web form (Pre130)** with file import support and
+  **presentación por lotes**
+- **File format:** BOE format (`.130` extension), plain text
+- **Diseño de registro:** [Modelos 100-199](https://sede.agenciatributaria.gob.es/Sede/ayuda/disenos-registro.html)
+- **Pre130 service:** Can auto-fill from AEAT's imported libro registro data
+- **Automation path:** Generate BOE file → Playwright imports into web form →
+  submit. Batch ("por lotes") presentation may allow multiple 130s at once
+- **Complexity:** Medium-High — browser automation but simpler form than 303
+
+### 5.6 Modelo 100 — Declaración anual IRPF (Renta)
+
+- **What:** Annual personal income tax return
+- **Frequency:** Annual (April-June)
+- **Submission method:** **Renta WEB** (interactive platform) or **file upload
+  in XML format** via "Presentación mediante fichero generado con programa de
+  ayuda"
+- **File format:** **XML** (not BOE) — must follow published XML schema
+- **Diseño de registro:** [Modelos 100-199](https://sede.agenciatributaria.gob.es/Sede/ayuda/disenos-registro.html)
+- **Submission URL:** [Presentación mediante fichero](https://sede.agenciatributaria.gob.es/Sede/ayuda/consultas-informaticas/renta-ayuda-tecnica/presentar-declaracion-mediante-fichero-generado-externo.html)
+- **Automation path:** Generate XML file → upload via sede electrónica web form
+  → confirm and sign
+- **Testing:** Available at `preportal.aeat.es` under Renta section
+- **Complexity:** Very High — most complex form, XML format, Renta WEB is a
+  full SPA
+
+### 5.7 Summary Matrix
+
+| Model | Type          | Freq     | API?          | File Format | Automation Method        |
+| ----- | ------------- | -------- | ------------- | ----------- | ------------------------ |
+| 347   | Informative   | Annual   | **TGVI Online** | BOE/ASCII | HTTP upload (no browser) |
+| 349   | Informative   | Q/M      | **TGVI Online** | BOE/ASCII | HTTP upload (no browser) |
+| 303   | Self-assess   | Quarterly| No (2027)     | BOE         | Browser (Playwright)     |
+| 390   | Summary       | Annual   | No            | BOE         | Browser (Playwright)     |
+| 130   | Self-assess   | Quarterly| No            | BOE         | Browser (Playwright)     |
+| 100   | Self-assess   | Annual   | No            | **XML**     | Browser (Playwright)     |
+
+## 6. Recommended Implementation Plan
+
+### Phase 1: Foundation
+
+1. Set up Nix development environment with Python, `requests-pkcs12`, `zeep`,
+   and Playwright
+2. Implement BOE file generator library (shared across 347, 349, 303, 390, 130)
+3. Parse diseño de registro specs for each model
+4. **Prerequisite:** FNMT `.p12` certificate
+
+### Phase 2: TGVI Online Models (347, 349) — Easiest wins
+
+1. Implement TGVI Online HTTP client with certificate auth
+2. Build file generators for 347 and 349 BOE formats
+3. Test against `prewww2.aeat.es` / TGVI Online test endpoints
+4. These two models can be fully automated without a browser
+
+### Phase 3: Browser-Automated Self-Assessments (303, 390, 130)
+
+1. Set up Playwright with client certificate for sede electrónica
+2. Build BOE file generators for 303, 390, and 130
+3. Automate: generate file → import into web form → verify → submit
+4. Handle the "presentación por lotes" path for 130 if beneficial
+5. Test against `preportal.aeat.es`
+
+### Phase 4: Renta / Modelo 100
+
+1. Build XML generator following AEAT's published schema
+2. Automate file upload via sede electrónica
+3. Handle Renta WEB's SPA flow if direct file upload is insufficient
+4. This is the most complex model — tackle last
 
 ### Known Blockers
 
-- **FNMT certificate required** — must clarify which certificate the user has
-- **Modelo 303 has no API until Jan 2027** — browser automation needed for now
+- **FNMT certificate required** — needed for all submission paths
+- **Models 303, 390, 130, 100 have no API** — browser automation required
 - **Nix + Playwright browser binaries** — requires workarounds for packaging
-- **Testing environment access** — need to verify test endpoints accept
-  certificate
+- **Diseño de registro specs** — need to download and parse for each model
 
-## 6. Open Questions
+## 7. Open Questions
 
 Before proceeding with implementation:
 
 1. Do you have an FNMT `.p12` certificate available? If so, is it a personal
    certificate or a company representative certificate?
-2. Which specific forms/models do you need to automate first? (e.g., Modelo 303,
-   SII, informative declarations)
-3. Do you have access to the AEAT testing environment (`preportal.aeat.es`)?
-4. Is there accounting data that needs to be ingested, or will form data be
+2. Do you have access to the AEAT testing environment (`preportal.aeat.es`)?
+3. Is there accounting data that needs to be ingested, or will form data be
    provided manually?
+4. For Modelo 100 (Renta) — do you use Renta WEB's borrador, or do you generate
+   the full declaration externally?
+5. Priority order — should we start with the quarterly models (303, 130) since
+   they recur most often, or with the TGVI models (347, 349) since they're
+   easiest to automate?
