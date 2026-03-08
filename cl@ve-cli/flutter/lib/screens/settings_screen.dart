@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../src/auth_provider.dart';
 import '../src/theme_provider.dart';
 
 class SettingsScreen extends ConsumerWidget {
@@ -61,7 +62,7 @@ class SettingsScreen extends ConsumerWidget {
                     FilledButton(
                       onPressed: () {
                         Navigator.pop(ctx);
-                        // TODO: Call deactivate() then logout()
+                        ref.read(authProvider.notifier).deactivate();
                       },
                       child: const Text('Deactivate'),
                     ),
@@ -75,7 +76,7 @@ class SettingsScreen extends ConsumerWidget {
             title: const Text('Clear Session'),
             subtitle: const Text('Log out and clear saved credentials'),
             onTap: () {
-              // TODO: Call logout()
+              ref.read(authProvider.notifier).logout();
               ScaffoldMessenger.of(context).showSnackBar(
                 const SnackBar(content: Text('Session cleared')),
               );

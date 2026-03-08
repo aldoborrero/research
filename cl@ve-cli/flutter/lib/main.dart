@@ -9,6 +9,7 @@ import 'screens/pending_screen.dart';
 import 'screens/history_screen.dart';
 import 'screens/settings_screen.dart';
 import 'screens/splash_screen.dart';
+import 'src/auth_provider.dart';
 import 'src/theme_provider.dart';
 
 void main() {
@@ -17,23 +18,53 @@ void main() {
   runApp(const ProviderScope(child: ClaveApp()));
 }
 
-final _router = GoRouter(
-  initialLocation: '/splash',
-  routes: [
-    GoRoute(path: '/splash', builder: (_, __) => const SplashScreen()),
-    ShellRoute(
-      builder: (context, state, child) => AppShell(child: child),
-      routes: [
-        GoRoute(path: '/', builder: (_, __) => const HomeScreen()),
-        GoRoute(path: '/activate', builder: (_, __) => const ActivateScreen()),
-        GoRoute(path: '/pin', builder: (_, __) => const PinScreen()),
-        GoRoute(path: '/pending', builder: (_, __) => const PendingScreen()),
-        GoRoute(path: '/history', builder: (_, __) => const HistoryScreen()),
-        GoRoute(path: '/settings', builder: (_, __) => const SettingsScreen()),
-      ],
-    ),
-  ],
-);
+/// Routes that require an active session.
+const _protectedRoutes = {'/', '/pin', '/pending', '/history', '/settings'};
+
+/// Routes that should not be accessible when already authenticated.
+const _guestOnlyRoutes = {'/activate'};
+
+GoRouter _buildRouter(WidgetRef ref) {
+  return GoRouter(
+    initialLocation: '/splash',
+    redirect: (context, state) {
+      final auth = ref.read(authProvider);
+      final location = state.uri.path;
+
+      // Never redirect away from splash — it handles its own navigation.
+      if (location == '/splash') return null;
+
+      final isAuthenticated = auth is AuthAuthenticated;
+
+      // Redirect unauthenticated users away from protected routes.
+      if (!isAuthenticated && _protectedRoutes.contains(location)) {
+        return '/activate';
+      }
+
+      // Redirect authenticated users away from guest-only routes.
+      if (isAuthenticated && _guestOnlyRoutes.contains(location)) {
+        return '/';
+      }
+
+      return null;
+    },
+    routes: [
+      GoRoute(path: '/splash', builder: (_, __) => const SplashScreen()),
+      GoRoute(path: '/activate', builder: (_, __) => const ActivateScreen()),
+      ShellRoute(
+        builder: (context, state, child) => AppShell(child: child),
+        routes: [
+          GoRoute(path: '/', builder: (_, __) => const HomeScreen()),
+          GoRoute(path: '/pin', builder: (_, __) => const PinScreen()),
+          GoRoute(path: '/pending', builder: (_, __) => const PendingScreen()),
+          GoRoute(path: '/history', builder: (_, __) => const HistoryScreen()),
+          GoRoute(
+              path: '/settings', builder: (_, __) => const SettingsScreen()),
+        ],
+      ),
+    ],
+  );
+}
 
 class ClaveApp extends ConsumerWidget {
   const ClaveApp({super.key});
@@ -41,6 +72,10 @@ class ClaveApp extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final themeMode = ref.watch(themeModeProvider);
+
+    // Rebuild router when auth state changes so redirects re-evaluate.
+    ref.watch(authProvider);
+    final router = _buildRouter(ref);
 
     return MaterialApp.router(
       title: 'Cl@ve AEAT',
@@ -56,7 +91,7 @@ class ClaveApp extends ConsumerWidget {
         useMaterial3: true,
         brightness: Brightness.dark,
       ),
-      routerConfig: _router,
+      routerConfig: router,
     );
   }
 }
@@ -67,11 +102,26 @@ class AppShell extends StatelessWidget {
   const AppShell({super.key, required this.child});
 
   static const _destinations = [
-    NavigationDestination(icon: Icon(Icons.home_outlined), selectedIcon: Icon(Icons.home), label: 'Home'),
-    NavigationDestination(icon: Icon(Icons.notifications_outlined), selectedIcon: Icon(Icons.notifications), label: 'Pending'),
-    NavigationDestination(icon: Icon(Icons.pin_outlined), selectedIcon: Icon(Icons.pin), label: 'PIN'),
-    NavigationDestination(icon: Icon(Icons.history_outlined), selectedIcon: Icon(Icons.history), label: 'History'),
-    NavigationDestination(icon: Icon(Icons.settings_outlined), selectedIcon: Icon(Icons.settings), label: 'Settings'),
+    NavigationDestination(
+        icon: Icon(Icons.home_outlined),
+        selectedIcon: Icon(Icons.home),
+        label: 'Home'),
+    NavigationDestination(
+        icon: Icon(Icons.notifications_outlined),
+        selectedIcon: Icon(Icons.notifications),
+        label: 'Pending'),
+    NavigationDestination(
+        icon: Icon(Icons.pin_outlined),
+        selectedIcon: Icon(Icons.pin),
+        label: 'PIN'),
+    NavigationDestination(
+        icon: Icon(Icons.history_outlined),
+        selectedIcon: Icon(Icons.history),
+        label: 'History'),
+    NavigationDestination(
+        icon: Icon(Icons.settings_outlined),
+        selectedIcon: Icon(Icons.settings),
+        label: 'Settings'),
   ];
 
   static const _routes = ['/', '/pending', '/pin', '/history', '/settings'];

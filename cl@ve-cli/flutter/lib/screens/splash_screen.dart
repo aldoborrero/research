@@ -1,18 +1,21 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+
+import '../src/auth_provider.dart';
 
 /// Splash screen shown at startup.
 ///
 /// Initialises the Rust bridge, checks session state, then navigates to
 /// the home screen (active session) or the activate screen (no session).
-class SplashScreen extends StatefulWidget {
+class SplashScreen extends ConsumerStatefulWidget {
   const SplashScreen({super.key});
 
   @override
-  State<SplashScreen> createState() => _SplashScreenState();
+  ConsumerState<SplashScreen> createState() => _SplashScreenState();
 }
 
-class _SplashScreenState extends State<SplashScreen>
+class _SplashScreenState extends ConsumerState<SplashScreen>
     with SingleTickerProviderStateMixin {
   late final AnimationController _controller;
   late final Animation<double> _fadeIn;
@@ -34,28 +37,28 @@ class _SplashScreenState extends State<SplashScreen>
     try {
       // TODO: Initialise flutter_rust_bridge runtime:
       // await RustLib.init();
+
       setState(() => _statusText = 'Checking session...');
 
-      // TODO: Check session via Rust bridge:
-      // final status = getStatus();
-      // final hasSession = status.active;
-      const hasSession = false;
+      // Check for existing session via the bridge.
+      ref.read(authProvider.notifier).checkSession();
 
       // Brief delay so splash is visible even on fast devices.
       await Future<void>.delayed(const Duration(milliseconds: 600));
 
       if (!mounted) return;
-      if (hasSession) {
+
+      final auth = ref.read(authProvider);
+      if (auth is AuthAuthenticated) {
         context.go('/');
       } else {
-        context.go('/');
+        context.go('/activate');
       }
     } catch (e) {
       if (!mounted) return;
       setState(() => _statusText = 'Error: $e');
-      // Fall through to home after a short delay.
       await Future<void>.delayed(const Duration(seconds: 2));
-      if (mounted) context.go('/');
+      if (mounted) context.go('/activate');
     }
   }
 
