@@ -8,8 +8,8 @@ from decimal import Decimal
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from ..logging import get_logger
-from ..modelos import Modelo130Data, Modelo303Data
-from ..quipu import QuipuClient
+from ..clients.quipu import QuipuClient
+from ..models import Modelo130Data, Modelo303Data
 from .auth import require_api_key
 from .config import ApiSettings
 from .schemas import (

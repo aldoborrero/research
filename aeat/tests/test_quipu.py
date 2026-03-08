@@ -6,7 +6,7 @@ from decimal import Decimal
 import pytest
 
 from aeat_autonomo.config import QuipuConfig
-from aeat_autonomo.quipu import QuarterlyTotals, QuipuClient
+from aeat_autonomo.clients.quipu import QuarterlyTotals, QuipuClient
 
 
 # ---------------------------------------------------------------------------
@@ -298,7 +298,7 @@ class TestQuipuToModeloMapping:
 
     def test_maps_to_modelo303(self):
         """QuarterlyTotals feeds directly into Modelo303Data fields."""
-        from aeat_autonomo.modelos import Modelo303Data
+        from aeat_autonomo.models import Modelo303Data
 
         t = self._sample_totals()
         d = Modelo303Data(
@@ -316,7 +316,7 @@ class TestQuipuToModeloMapping:
 
     def test_maps_to_modelo130(self):
         """QuarterlyTotals feeds directly into Modelo130Data fields."""
-        from aeat_autonomo.modelos import Modelo130Data
+        from aeat_autonomo.models import Modelo130Data
 
         t = self._sample_totals()
         d = Modelo130Data(

@@ -12,8 +12,8 @@ from typing import Any
 
 import httpx
 
-from .config import QuipuConfig
-from .logging import get_logger
+from ..config import QuipuConfig
+from ..logging import get_logger
 
 log = get_logger(__name__)
 

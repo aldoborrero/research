@@ -1,6 +1,6 @@
 """Tests for boe.py — BOE fixed-width file helpers."""
 
-from aeat_autonomo.modelos.boe import BOEField, BOERecord, encode_boe, format_amount, format_nif
+from aeat_autonomo.models.boe import BOEField, BOERecord, encode_boe, format_amount, format_nif
 
 
 class TestFormatAmount:

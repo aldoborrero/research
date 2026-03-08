@@ -5,7 +5,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from ..logging import get_logger
-from ..quipu import QuipuClient
+from ..clients.quipu import QuipuClient
 from .auth import require_api_key
 from .config import ApiSettings
 from .schemas import Quarter, QuipuTotalsResponse

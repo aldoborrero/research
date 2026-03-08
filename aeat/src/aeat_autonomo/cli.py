@@ -21,11 +21,11 @@ import click
 
 from .config import AeatConfig
 from .logging import setup_logging
-from .modelos import Modelo130Data, Modelo303Data, encode_boe, generate_130_boe, generate_303_boe
-from .quipu import QuipuClient
+from .clients.quipu import QuipuClient
+from .models import Modelo130Data, Modelo303Data, encode_boe, generate_130_boe, generate_303_boe
 
 if TYPE_CHECKING:
-    from .submit import PresentacionDirectaClient, SubmissionResult
+    from .clients.aeat import PresentacionDirectaClient, SubmissionResult
 
 
 def _load_config(config_path: Path) -> AeatConfig:
@@ -457,7 +457,7 @@ def submit() -> None:
 
 def _make_submit_client(config: AeatConfig) -> PresentacionDirectaClient:
     """Create a PresentacionDirectaClient from config."""
-    from .submit import PresentacionDirectaClient
+    from .clients.aeat import PresentacionDirectaClient
 
     return PresentacionDirectaClient(
         config.certificate,

@@ -17,7 +17,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
 from ..logging import get_logger, setup_logging
-from ..submit import PresentacionDirectaClient
+from ..clients.aeat import PresentacionDirectaClient
 from .auth import configure_auth
 from .config import ApiSettings, load_settings
 from .routes_generate import router as generate_router
