@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
     "crates/clave-core",
+    "crates/clave-core-ffi",
     "crates/clave-cli",
     "crates/clave-web",
 ]
@@ -35,6 +36,9 @@ cbc = "0.1"
 pbkdf2 = "0.12"
 sha1 = "0.10"
 hmac = "0.12"
+
+# FFI
+flutter_rust_bridge = "=2.9.0"
 
 # CLI
 clap = { version = "4", features = ["derive"] }

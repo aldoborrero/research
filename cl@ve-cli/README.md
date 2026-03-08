@@ -1,6 +1,6 @@
 # clave
 
-CLI and web tools for **Cl@ve AEAT** authentication — Spain's digital identity system used for interacting with public administration services.
+Alternative implementation of **Cl@ve AEAT** — Spain's digital identity system for interacting with public administration services. CLI, web, and mobile clients sharing a single Rust core.
 
 ## Features
 
@@ -14,16 +14,17 @@ CLI and web tools for **Cl@ve AEAT** authentication — Spain's digital identity
 - **Structured output**: JSON by default, `--plain` for human-readable text
 - **Secure storage**: Credentials stored via system keyring (fallback to XDG data dir)
 - **Web interface**: Browser-based UI with real-time SSE updates for pending requests
+- **Mobile apps**: Flutter (iOS + Android) powered by the same Rust core via FFI
 
 ## Project Structure
 
-This is a Cargo workspace with three crates:
-
 ```
 crates/
-├── clave-core/   # Shared library: API client, auth flows, config, crypto, session
-├── clave-cli/    # CLI binary (`clave`)
-└── clave-web/    # Web server binary (`clave-web`) with embedded frontend
+├── clave-core/       # Shared Rust library: API client, auth flows, config, crypto, session
+├── clave-core-ffi/   # FFI bridge layer for Flutter (flutter_rust_bridge)
+├── clave-cli/        # CLI binary (`clave`)
+└── clave-web/        # Web server binary (`clave-web`) with embedded frontend
+flutter/              # Flutter mobile app (iOS, Android, desktop)
 ```
 
 ## Installation

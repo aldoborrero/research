@@ -1,0 +1,345 @@
+use flutter_rust_bridge::frb;
+
+// ---------------------------------------------------------------------------
+// FFI-safe types (no lifetimes, simple owned data)
+// ---------------------------------------------------------------------------
+
+/// Session information returned after activation.
+#[frb]
+pub struct FfiSession {
+    pub device_id: String,
+    pub nif: String,
+    pub created_at: String,
+    pub has_firebase_token: bool,
+}
+
+/// Result of a PIN request.
+#[frb]
+pub struct FfiPinResult {
+    pub pin: String,
+    pub time_to_live_seconds: String,
+    pub nif: String,
+}
+
+/// Status of the current session.
+#[frb]
+pub struct FfiStatus {
+    pub active: bool,
+    pub nif: Option<String>,
+    pub device_id: Option<String>,
+    pub created_at: Option<String>,
+    pub has_firebase_token: bool,
+}
+
+/// Generic API result carrying JSON data.
+#[frb]
+pub struct FfiApiResult {
+    pub ok: bool,
+    pub data: String, // JSON string
+    pub error: Option<String>,
+}
+
+/// NIF check result.
+#[frb]
+pub struct FfiNifCheckResult {
+    pub nif: String,
+    pub status: String,
+    pub response_json: String,
+}
+
+// ---------------------------------------------------------------------------
+// Bridge functions
+// ---------------------------------------------------------------------------
+
+/// Activate this device with Cl@ve.
+#[frb]
+pub async fn activate_device(
+    nif: String,
+    password: Option<String>,
+) -> Result<FfiSession, String> {
+    let nif = clave_core::config::validate_nif(&nif).map_err(|e| e.to_string())?;
+    let device_id = uuid::Uuid::new_v4().to_string();
+    let device_password = password.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+
+    let client = clave_core::ClaveClient::new().map_err(|e| e.to_string())?;
+    let session =
+        clave_core::auth::activate_device(&client, &nif, &device_id, &device_password)
+            .await
+            .map_err(|e| e.to_string())?;
+
+    // Save config
+    if let Ok(mut cfg) = clave_core::Config::load() {
+        cfg.nif = Some(nif.clone());
+        cfg.device_id = Some(device_id.clone());
+        let _ = cfg.save();
+    }
+
+    Ok(FfiSession {
+        device_id: session.device_id,
+        nif: session.nif,
+        created_at: session.created_at,
+        has_firebase_token: session.firebase_token.is_some(),
+    })
+}
+
+/// Request a Cl@ve PIN.
+#[frb]
+pub async fn request_pin() -> Result<FfiPinResult, String> {
+    let session = clave_core::Session::load().map_err(|e| e.to_string())?;
+    let client = clave_core::ClaveClient::new().map_err(|e| e.to_string())?;
+    let (pin, ttl) = clave_core::auth::request_pin(&client, &session)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    Ok(FfiPinResult {
+        pin,
+        time_to_live_seconds: ttl,
+        nif: session.nif,
+    })
+}
+
+/// Get current session status.
+#[frb]
+pub fn get_status() -> FfiStatus {
+    match clave_core::Session::load() {
+        Ok(session) => FfiStatus {
+            active: true,
+            nif: Some(session.nif),
+            device_id: Some(session.device_id),
+            created_at: Some(session.created_at),
+            has_firebase_token: session.firebase_token.is_some(),
+        },
+        Err(_) => FfiStatus {
+            active: false,
+            nif: None,
+            device_id: None,
+            created_at: None,
+            has_firebase_token: false,
+        },
+    }
+}
+
+/// Check if a NIF is registered in Cl@ve.
+#[frb]
+pub async fn check_nif(nif: Option<String>) -> Result<FfiNifCheckResult, String> {
+    let nif = if let Some(n) = nif {
+        clave_core::config::validate_nif(&n).map_err(|e| e.to_string())?
+    } else {
+        let cfg = clave_core::Config::load().map_err(|e| e.to_string())?;
+        cfg.nif.ok_or("No NIF configured")?
+    };
+
+    let client = clave_core::ClaveClient::new().map_err(|e| e.to_string())?;
+    let device_id = uuid::Uuid::new_v4().to_string();
+
+    let _starting = client
+        .starting(&device_id, &nif, "")
+        .await
+        .map_err(|e| e.to_string())?;
+    let resp = client
+        .is_nif_activated(&device_id, &nif)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    Ok(FfiNifCheckResult {
+        nif,
+        status: resp.status,
+        response_json: serde_json::to_string(&resp.respuesta).unwrap_or_default(),
+    })
+}
+
+/// Get account data.
+#[frb]
+pub async fn get_my_data() -> Result<FfiApiResult, String> {
+    let session = clave_core::Session::load().map_err(|e| e.to_string())?;
+    let client = clave_core::ClaveClient::new().map_err(|e| e.to_string())?;
+
+    let _starting = client
+        .starting(&session.device_id, &session.nif, "")
+        .await
+        .map_err(|e| e.to_string())?;
+
+    match client
+        .check_my_data(&session.device_id, &session.nif)
+        .await
+    {
+        Ok(resp) => Ok(FfiApiResult {
+            ok: true,
+            data: serde_json::to_string(&resp.respuesta).unwrap_or_default(),
+            error: None,
+        }),
+        Err(e) => Ok(FfiApiResult {
+            ok: false,
+            data: String::new(),
+            error: Some(e.to_string()),
+        }),
+    }
+}
+
+/// Get operations history.
+#[frb]
+pub async fn get_history() -> Result<FfiApiResult, String> {
+    let session = clave_core::Session::load().map_err(|e| e.to_string())?;
+    let client = clave_core::ClaveClient::new().map_err(|e| e.to_string())?;
+
+    let _starting = client
+        .starting(&session.device_id, &session.nif, "")
+        .await
+        .map_err(|e| e.to_string())?;
+
+    match client
+        .operations_history(
+            &session.device_id,
+            &session.device_password,
+            &session.nif,
+        )
+        .await
+    {
+        Ok(resp) => Ok(FfiApiResult {
+            ok: true,
+            data: serde_json::to_string(&resp.respuesta).unwrap_or_default(),
+            error: None,
+        }),
+        Err(e) => Ok(FfiApiResult {
+            ok: false,
+            data: String::new(),
+            error: Some(e.to_string()),
+        }),
+    }
+}
+
+/// Poll for pending authentication requests (single poll).
+#[frb]
+pub async fn get_pending_requests() -> Result<FfiApiResult, String> {
+    let session = clave_core::Session::load().map_err(|e| e.to_string())?;
+    let client = clave_core::ClaveClient::new().map_err(|e| e.to_string())?;
+
+    match clave_core::auth::poll_pending_requests(&client, &session).await {
+        Ok(data) => Ok(FfiApiResult {
+            ok: true,
+            data: serde_json::to_string(&data).unwrap_or_default(),
+            error: None,
+        }),
+        Err(e) => Ok(FfiApiResult {
+            ok: false,
+            data: String::new(),
+            error: Some(e.to_string()),
+        }),
+    }
+}
+
+/// Confirm a pending Cl@ve Móvil authentication request.
+#[frb]
+pub async fn confirm_request(token: String, idp_code: String) -> Result<FfiApiResult, String> {
+    let session = clave_core::Session::load().map_err(|e| e.to_string())?;
+    let client = clave_core::ClaveClient::new().map_err(|e| e.to_string())?;
+
+    match clave_core::auth::confirm_authentication(&client, &session, &token, &idp_code).await {
+        Ok(data) => Ok(FfiApiResult {
+            ok: true,
+            data: serde_json::to_string(&data).unwrap_or_default(),
+            error: None,
+        }),
+        Err(e) => Ok(FfiApiResult {
+            ok: false,
+            data: String::new(),
+            error: Some(e.to_string()),
+        }),
+    }
+}
+
+/// Reject a pending Cl@ve Móvil authentication request.
+#[frb]
+pub async fn reject_request(token: String, idp_code: String) -> Result<FfiApiResult, String> {
+    let session = clave_core::Session::load().map_err(|e| e.to_string())?;
+    let client = clave_core::ClaveClient::new().map_err(|e| e.to_string())?;
+
+    match clave_core::auth::reject_authentication(&client, &session, &token, &idp_code).await {
+        Ok(data) => Ok(FfiApiResult {
+            ok: true,
+            data: serde_json::to_string(&data).unwrap_or_default(),
+            error: None,
+        }),
+        Err(e) => Ok(FfiApiResult {
+            ok: false,
+            data: String::new(),
+            error: Some(e.to_string()),
+        }),
+    }
+}
+
+/// QR code authentication.
+#[frb]
+pub async fn qr_authenticate(value: String) -> Result<FfiApiResult, String> {
+    let session = clave_core::Session::load().map_err(|e| e.to_string())?;
+    let client = clave_core::ClaveClient::new().map_err(|e| e.to_string())?;
+
+    let _starting = client
+        .starting(&session.device_id, &session.nif, "")
+        .await
+        .map_err(|e| e.to_string())?;
+
+    match client
+        .qr_authenticate(&session.device_id, &session.nif, &value)
+        .await
+    {
+        Ok(resp) => Ok(FfiApiResult {
+            ok: true,
+            data: serde_json::to_string(&resp.respuesta).unwrap_or_default(),
+            error: None,
+        }),
+        Err(e) => Ok(FfiApiResult {
+            ok: false,
+            data: String::new(),
+            error: Some(e.to_string()),
+        }),
+    }
+}
+
+/// Deactivate this device.
+#[frb]
+pub async fn deactivate() -> Result<FfiApiResult, String> {
+    let session = clave_core::Session::load().map_err(|e| e.to_string())?;
+    let client = clave_core::ClaveClient::new().map_err(|e| e.to_string())?;
+
+    let _starting = client
+        .starting(&session.device_id, &session.nif, "")
+        .await
+        .map_err(|e| e.to_string())?;
+
+    match client
+        .deactivate_authentication(&session.device_id, &session.nif)
+        .await
+    {
+        Ok(resp) => {
+            let _ = clave_core::Session::delete();
+            Ok(FfiApiResult {
+                ok: true,
+                data: serde_json::to_string(&serde_json::json!({
+                    "status": resp.status,
+                    "message": "Device deactivated"
+                }))
+                .unwrap_or_default(),
+                error: None,
+            })
+        }
+        Err(e) => Ok(FfiApiResult {
+            ok: false,
+            data: String::new(),
+            error: Some(e.to_string()),
+        }),
+    }
+}
+
+/// Log out and clear saved credentials.
+#[frb]
+pub fn logout() -> Result<bool, String> {
+    clave_core::Session::delete().map_err(|e| e.to_string())?;
+    Ok(true)
+}
+
+/// Validate a NIF format without making any API calls.
+#[frb]
+pub fn validate_nif(nif: String) -> Result<String, String> {
+    clave_core::config::validate_nif(&nif).map_err(|e| e.to_string())
+}

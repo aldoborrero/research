@@ -23,6 +23,10 @@ pkgs.mkShell {
       pkgs.openssl
       pkgs.pkg-config
 
+      # Flutter + mobile development
+      pkgs.flutter
+      pkgs.dart
+
       # APK reverse engineering tools
       pkgs.apktool
       pkgs.jadx
