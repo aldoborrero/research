@@ -5,6 +5,7 @@ Usage:
     aeat generate 130 --quarter 1T --year 2026
     aeat submit 303 --quarter 1T --year 2026 [--dry-run]
     aeat quipu-totals --quarter 1T --year 2026
+    aeat simulate --year 2024
 """
 
 from __future__ import annotations
@@ -269,6 +270,178 @@ def generate_130(
     click.echo(f"Pagos ant. [05]:    {data.pagos_anteriores:>10.2f} €")
     click.echo(f"Resultado [19]:     {data.resultado:>10.2f} €")
     click.echo(f"Tipo declaración:   {data.tipo_declaracion}")
+
+
+@main.command("simulate")
+@click.option("--year", required=True, type=int, help="Fiscal year to simulate.")
+@click.option(
+    "--quarters",
+    default="1T,2T,3T,4T",
+    help="Quarters to simulate (comma-separated). Default: all.",
+)
+@click.option("--output-dir", "-o", type=click.Path(path_type=Path), default=None,
+              help="Directory to save generated BOE files.")
+@click.pass_context
+def simulate(ctx: click.Context, year: int, quarters: str, output_dir: Path | None) -> None:
+    """Simulate a full fiscal year using Quipu data.
+
+    Fetches historical data from Quipu for each quarter and generates
+    both Modelo 303 (VAT) and Modelo 130 (IRPF) declarations, showing
+    what each filing would have looked like.
+
+    No certificate needed — nothing is submitted to AEAT.
+
+    Examples:
+
+        aeat simulate --year 2024
+
+        aeat simulate --year 2025 --quarters 1T,2T
+
+        aeat simulate --year 2024 -o ./sim-2024/
+    """
+    config = _load_config(ctx.obj["config_path"])
+    declarant = config["declarant"]
+    quipu_cfg = QuipuConfig(
+        api_key=config["quipu"]["api_key"],
+        api_secret=config["quipu"]["api_secret"],
+    )
+    nombre_completo = (
+        declarant.get("apellidos", "") + " " + declarant.get("nombre", "")
+    ).strip()
+    iban = config.get("iban", "")
+
+    quarter_list = [q.strip() for q in quarters.split(",")]
+    for q in quarter_list:
+        if q not in ("1T", "2T", "3T", "4T"):
+            click.echo(f"Invalid quarter: {q}", err=True)
+            sys.exit(1)
+
+    if output_dir:
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+    # Determine which quarters we need to fetch (for 130 accumulation,
+    # we always need Q1 through the latest requested quarter)
+    max_q = max(int(q[0]) for q in quarter_list)
+    quarters_to_fetch = [f"{i}T" for i in range(1, max_q + 1)]
+
+    # Fetch quarterly data from Quipu
+    click.echo(f"Fetching Quipu data for {year}...\n")
+    quarterly_data = {}
+    with QuipuClient(quipu_cfg) as client:
+        for q in quarters_to_fetch:
+            q_num = int(q[0])
+            quarterly_data[q] = client.get_quarterly_totals(year, q_num)
+
+    # Track cumulative values for Modelo 130
+    accum_income = Decimal("0")
+    accum_expenses = Decimal("0")
+    accum_130_payments = Decimal("0")
+
+    # Annual totals (only for displayed quarters)
+    annual_vat_collected = Decimal("0")
+    annual_vat_deductible = Decimal("0")
+    annual_income = Decimal("0")
+    annual_expenses = Decimal("0")
+
+    for q in quarters_to_fetch:
+        totals = quarterly_data[q]
+        accum_income += totals.total_income_gross
+        accum_expenses += totals.total_expenses_gross
+
+        # Build Modelo 130 for this quarter (needed for payment accumulation)
+        m130 = Modelo130Data(
+            nif=declarant["nif"],
+            apellidos=declarant.get("apellidos", ""),
+            nombre=declarant.get("nombre", ""),
+            exercise=year,
+            period=q,
+            ingresos=accum_income,
+            gastos=accum_expenses,
+            pagos_anteriores=accum_130_payments,
+            cuenta_iban=iban,
+        )
+
+        if q not in quarter_list:
+            # Not a displayed quarter — just accumulate 130 payments and skip
+            if m130.resultado > 0:
+                accum_130_payments += m130.resultado
+            continue
+
+        # Track annual totals for displayed quarters
+        annual_vat_collected += totals.total_vat_collected
+        annual_vat_deductible += totals.total_vat_deductible
+        annual_income += totals.total_income_gross
+        annual_expenses += totals.total_expenses_gross
+
+        click.echo(f"{'=' * 60}")
+        click.echo(f"  {year} {q}")
+        click.echo(f"{'=' * 60}")
+
+        # Quipu raw data
+        click.echo(f"\n  Quipu data:")
+        click.echo(f"    Income (base):      {totals.total_income_gross:>12.2f} €")
+        click.echo(f"    VAT collected:      {totals.total_vat_collected:>12.2f} €")
+        click.echo(f"    Expenses (base):    {totals.total_expenses_gross:>12.2f} €")
+        click.echo(f"    VAT deductible:     {totals.total_vat_deductible:>12.2f} €")
+
+        # --- Modelo 303 ---
+        m303 = Modelo303Data(
+            nif=declarant["nif"],
+            nombre_razon=nombre_completo,
+            exercise=year,
+            period=q,
+            base_21=totals.total_income_gross,
+            cuota_21=totals.total_vat_collected,
+            base_deducible_interior=totals.total_expenses_gross,
+            cuota_deducible_interior=totals.total_vat_deductible,
+            cuenta_iban=iban,
+        )
+
+        click.echo(f"\n  Modelo 303 (IVA):")
+        click.echo(f"    IVA devengado [27]:   {m303.total_cuota_devengada:>12.2f} €")
+        click.echo(f"    IVA deducible [45]:   {m303.total_a_deducir:>12.2f} €")
+        click.echo(f"    Resultado     [69]:   {m303.resultado:>12.2f} €")
+        click.echo(f"    Liquidación   [71]:   {m303.resultado_liquidacion:>12.2f} €")
+        click.echo(f"    Tipo:                 {m303.tipo_declaracion}")
+
+        # --- Modelo 130 ---
+        click.echo(f"\n  Modelo 130 (IRPF):")
+        click.echo(f"    Ingresos acum. [01]:  {m130.ingresos:>12.2f} €")
+        click.echo(f"    Gastos acum.   [02]:  {m130.gastos:>12.2f} €")
+        click.echo(f"    Rend. neto     [03]:  {m130.rendimiento_neto:>12.2f} €")
+        click.echo(f"    20% pago       [04]:  {m130.pago_20_pct:>12.2f} €")
+        click.echo(f"    Pagos ant.     [05]:  {m130.pagos_anteriores:>12.2f} €")
+        click.echo(f"    Resultado      [19]:  {m130.resultado:>12.2f} €")
+        click.echo(f"    Tipo:                 {m130.tipo_declaracion}")
+
+        # Update accumulated 130 payments
+        if m130.resultado > 0:
+            accum_130_payments += m130.resultado
+
+        # Save BOE files if requested
+        if output_dir:
+            boe_303 = generate_303_boe(m303)
+            boe_130 = generate_130_boe(m130)
+            path_303 = output_dir / f"modelo303_{year}_{q}.boe"
+            path_130 = output_dir / f"modelo130_{year}_{q}.boe"
+            path_303.write_text(boe_303)
+            path_130.write_text(boe_130)
+            click.echo(f"\n    Saved: {path_303}")
+            click.echo(f"    Saved: {path_130}")
+
+        click.echo()
+
+    # Annual summary
+    click.echo(f"{'=' * 60}")
+    click.echo(f"  {year} ANNUAL SUMMARY")
+    click.echo(f"{'=' * 60}")
+    click.echo(f"    Total income:         {annual_income:>12.2f} €")
+    click.echo(f"    Total expenses:       {annual_expenses:>12.2f} €")
+    click.echo(f"    Net income (IRPF):    {annual_income - annual_expenses:>12.2f} €")
+    click.echo(f"    Total VAT collected:  {annual_vat_collected:>12.2f} €")
+    click.echo(f"    Total VAT deducted:   {annual_vat_deductible:>12.2f} €")
+    click.echo(f"    Net VAT paid:         {annual_vat_collected - annual_vat_deductible:>12.2f} €")
+    click.echo(f"    IRPF advance paid:    {accum_130_payments:>12.2f} €")
 
 
 @main.group()
