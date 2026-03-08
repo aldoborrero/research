@@ -75,11 +75,13 @@ class SettingsScreen extends ConsumerWidget {
             leading: const Icon(Icons.delete_outline),
             title: const Text('Clear Session'),
             subtitle: const Text('Log out and clear saved credentials'),
-            onTap: () {
-              ref.read(authProvider.notifier).logout();
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Session cleared')),
-              );
+            onTap: () async {
+              await ref.read(authProvider.notifier).logout();
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Session cleared')),
+                );
+              }
             },
           ),
           const Divider(),

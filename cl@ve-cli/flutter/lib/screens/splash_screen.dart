@@ -40,8 +40,9 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
 
       setState(() => _statusText = 'Checking session...');
 
-      // Check for existing session via the bridge.
-      ref.read(authProvider.notifier).checkSession();
+      // Initialise the Rust core and restore any persisted session from
+      // platform secure storage (Android Keystore / iOS Keychain).
+      await ref.read(authProvider.notifier).init();
 
       // Brief delay so splash is visible even on fast devices.
       await Future<void>.delayed(const Duration(milliseconds: 600));

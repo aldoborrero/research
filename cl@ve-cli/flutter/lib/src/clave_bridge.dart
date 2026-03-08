@@ -82,6 +82,13 @@ class ClaveNifCheckResult {
 // ---------------------------------------------------------------------------
 
 abstract class ClaveBridge {
+  /// Initialise the Rust core. [sessionJson] is the previously-saved session
+  /// from secure storage, or `null` on first launch.
+  Future<void> initCore(String? sessionJson);
+
+  /// Export the current session as JSON for secure storage persistence.
+  String? exportSession();
+
   Future<ClaveSession> activateDevice(String nif, String? password);
   Future<ClavePinResult> requestPin();
   ClaveStatus getStatus();
@@ -100,6 +107,17 @@ abstract class ClaveBridge {
 /// Mock implementation that simulates the Rust bridge for UI development.
 class MockClaveBridge implements ClaveBridge {
   ClaveSession? _session;
+
+  @override
+  Future<void> initCore(String? sessionJson) async {
+    // In mock mode, no Rust core to initialise.
+  }
+
+  @override
+  String? exportSession() {
+    // Mock: no real session data to export.
+    return null;
+  }
 
   @override
   Future<ClaveSession> activateDevice(String nif, String? password) async {

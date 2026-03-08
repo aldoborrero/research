@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'clave_bridge.dart';
+import 'secure_session_store.dart';
 
 /// Authentication state for the app.
 sealed class AuthState {
@@ -31,6 +32,15 @@ class AuthNotifier extends StateNotifier<AuthState> {
 
   AuthNotifier(this._bridge) : super(const AuthLoading());
 
+  /// Initialise the Rust core and restore a persisted session.
+  ///
+  /// Must be called once before any other bridge interaction.
+  Future<void> init() async {
+    final savedJson = await SecureSessionStore.read();
+    await _bridge.initCore(savedJson);
+    checkSession();
+  }
+
   /// Check if a session already exists (called on startup).
   void checkSession() {
     final status = _bridge.getStatus();
@@ -54,6 +64,11 @@ class AuthNotifier extends StateNotifier<AuthState> {
     state = const AuthLoading();
     try {
       final session = await _bridge.activateDevice(nif, password);
+      // Persist session to platform secure storage
+      final json = _bridge.exportSession();
+      if (json != null) {
+        await SecureSessionStore.write(json);
+      }
       state = AuthAuthenticated(session);
     } catch (e) {
       state = AuthError(e.toString());
@@ -61,8 +76,9 @@ class AuthNotifier extends StateNotifier<AuthState> {
   }
 
   /// Log out and clear session.
-  void logout() {
+  Future<void> logout() async {
     _bridge.logout();
+    await SecureSessionStore.delete();
     state = const AuthUnauthenticated();
   }
 
@@ -73,6 +89,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
     } catch (_) {
       // Even if remote deactivation fails, clear local session.
     }
+    await SecureSessionStore.delete();
     state = const AuthUnauthenticated();
   }
 }

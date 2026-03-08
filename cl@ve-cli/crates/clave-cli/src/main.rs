@@ -3,7 +3,7 @@ use serde_json::json;
 
 use clave_core::config::validate_nif;
 use clave_core::error::{ClaveError, Result};
-use clave_core::{ClaveClient, Config, Session};
+use clave_core::{init_storage, ClaveClient, Config, KeyringStorage, Session};
 
 #[derive(Parser)]
 #[command(
@@ -170,6 +170,8 @@ async fn main() {
             .with_env_filter("clave=warn,clave_core=warn")
             .init();
     }
+
+    init_storage(Box::new(KeyringStorage::new()));
 
     if let Err(e) = run(&cli).await {
         output_error(&cli, &e);

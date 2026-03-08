@@ -48,6 +48,35 @@ pub struct FfiNifCheckResult {
 }
 
 // ---------------------------------------------------------------------------
+// Storage initialisation — must be called before any other function.
+// ---------------------------------------------------------------------------
+
+/// Initialise the Rust core with in-memory storage for mobile platforms.
+///
+/// Flutter should call this once at startup (e.g. in `main()` before any other
+/// FFI call).  If a previously-saved session JSON is available from
+/// `flutter_secure_storage`, pass it here to hydrate the session; otherwise
+/// pass `null`.
+#[frb]
+pub fn init_core(session_json: Option<String>) -> Result<bool, String> {
+    clave_core::init_storage(Box::new(clave_core::MemoryStorage::new()));
+    if let Some(json) = session_json {
+        clave_core::Session::set_session_data(&json).map_err(|e| e.to_string())?;
+    }
+    Ok(true)
+}
+
+/// Export the current session as a JSON string.
+///
+/// Flutter should call this after operations that create or mutate the session
+/// (e.g. `activate_device`) and persist the returned JSON in
+/// `flutter_secure_storage`.  Returns `null` if there is no active session.
+#[frb]
+pub fn export_session() -> Option<String> {
+    clave_core::Session::get_session_data().ok()
+}
+
+// ---------------------------------------------------------------------------
 // Bridge functions
 // ---------------------------------------------------------------------------
 

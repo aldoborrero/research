@@ -4,8 +4,10 @@ pub mod config;
 pub mod crypto;
 pub mod error;
 pub mod session;
+pub mod storage;
 
 pub use api::ClaveClient;
 pub use config::Config;
 pub use error::ClaveError;
 pub use session::Session;
+pub use storage::{init_storage, KeyringStorage, MemoryStorage};
