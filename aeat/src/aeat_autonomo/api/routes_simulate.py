@@ -7,15 +7,12 @@ from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from ..config import QuipuConfig
 from ..logging import get_logger
 from ..modelo130 import Modelo130Data
 from ..modelo303 import Modelo303Data
 from ..quipu import QuipuClient
 from .auth import require_api_key
 from .config import ApiSettings
-
-log = get_logger(__name__)
 from .schemas import (
     AnnualSummary,
     QuipuTotalsResponse,
@@ -24,6 +21,8 @@ from .schemas import (
     Summary130,
     Summary303,
 )
+
+log = get_logger(__name__)
 
 router = APIRouter(prefix="/api/v1", tags=["simulate"], dependencies=[Depends(require_api_key)])
 
@@ -44,7 +43,7 @@ def simulate(
     """
     log.info("simulate_request", year=year, quarters=quarters)
     settings = _get_settings()
-    if not settings.quipu_key:
+    if not settings.quipu.is_configured:
         raise HTTPException(status_code=400, detail="Quipu credentials not configured")
 
     if year is None:
@@ -56,14 +55,11 @@ def simulate(
         if q not in valid:
             raise HTTPException(status_code=422, detail=f"Invalid quarter: {q}")
 
-    nombre_completo = f"{settings.declarant_apellidos} {settings.declarant_nombre}".strip()
-    quipu_cfg = QuipuConfig(api_key=settings.quipu_key, api_secret=settings.quipu_secret)
-
     max_q = max(int(q[0]) for q in quarter_list)
     quarters_to_fetch = [f"{i}T" for i in range(1, max_q + 1)]
 
     quarterly_data = {}
-    with QuipuClient(quipu_cfg) as client:
+    with QuipuClient(settings.quipu) as client:
         for q in quarters_to_fetch:
             quarterly_data[q] = client.get_quarterly_totals(year, int(q[0]))
 
@@ -84,9 +80,9 @@ def simulate(
         accum_expenses += totals.total_expenses_gross
 
         m130 = Modelo130Data(
-            nif=settings.declarant_nif,
-            apellidos=settings.declarant_apellidos,
-            nombre=settings.declarant_nombre,
+            nif=settings.declarant.nif,
+            apellidos=settings.declarant.apellidos,
+            nombre=settings.declarant.nombre,
             exercise=year,
             period=q,
             ingresos=accum_income,
@@ -106,8 +102,8 @@ def simulate(
         annual_expenses += totals.total_expenses_gross
 
         m303 = Modelo303Data(
-            nif=settings.declarant_nif,
-            nombre_razon=nombre_completo,
+            nif=settings.declarant.nif,
+            nombre_razon=settings.declarant.nombre_completo,
             exercise=year,
             period=q,
             base_21=totals.total_income_gross,

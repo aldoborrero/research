@@ -12,12 +12,10 @@ from __future__ import annotations
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from decimal import InvalidOperation
-from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
-from ..config import CertificateConfig
 from ..logging import get_logger, setup_logging
 from ..submit import PresentacionDirectaClient
 from .auth import configure_auth
@@ -40,26 +38,24 @@ async def _lifespan(application: FastAPI) -> AsyncGenerator[None]:
     """Manage application lifecycle — certificate init and cleanup."""
     global _submit_client  # noqa: PLW0603
 
-    if _settings.cert_path and _settings.cert_password:
+    if _settings.certificate.is_configured:
         try:
-            cert_cfg = CertificateConfig(
-                pfx_path=Path(_settings.cert_path),
-                password=_settings.cert_password,
-            )
-            nombre = f"{_settings.declarant_apellidos} {_settings.declarant_nombre}".strip()
             _submit_client = PresentacionDirectaClient(
-                cert_cfg,
-                nif_presentador=_settings.declarant_nif,
-                nombre_presentador=nombre,
+                _settings.certificate,
+                nif_presentador=_settings.declarant.nif,
+                nombre_presentador=_settings.declarant.nombre_completo,
                 testing=_settings.testing,
             )
             log.info(
                 "submit_client_ready",
-                nif=_settings.declarant_nif,
+                nif=_settings.declarant.nif,
                 testing=_settings.testing,
             )
         except Exception:
-            log.error("submit_client_init_failed", cert_path=_settings.cert_path)
+            log.error(
+                "submit_client_init_failed",
+                cert_path=str(_settings.certificate.pfx_path),
+            )
             _submit_client = None
 
     log.info("api_started", host=_settings.host, port=_settings.port)
@@ -87,9 +83,9 @@ def create_app(settings: ApiSettings | None = None) -> FastAPI:
 
     log.info(
         "api_config_loaded",
-        declarant_nif=settings.declarant_nif,
-        certificate_configured=bool(settings.cert_path and settings.cert_password),
-        quipu_configured=bool(settings.quipu_key and settings.quipu_secret),
+        declarant_nif=settings.declarant.nif,
+        certificate_configured=settings.certificate.is_configured,
+        quipu_configured=settings.quipu.is_configured,
         testing=settings.testing,
     )
 
@@ -107,9 +103,9 @@ def create_app(settings: ApiSettings | None = None) -> FastAPI:
     @application.get("/health", response_model=HealthResponse, tags=["health"])
     def health() -> HealthResponse:
         return HealthResponse(
-            config_loaded=bool(settings.declarant_nif),
-            certificate_configured=bool(settings.cert_path and settings.cert_password),
-            quipu_configured=bool(settings.quipu_key and settings.quipu_secret),
+            config_loaded=bool(settings.declarant.nif),
+            certificate_configured=settings.certificate.is_configured,
+            quipu_configured=settings.quipu.is_configured,
             testing_mode=settings.testing,
         )
 

@@ -15,13 +15,13 @@ import sys
 from datetime import date
 from decimal import Decimal
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 import click
 
 from .boe import encode_boe
+from .config import AeatConfig
 from .logging import setup_logging
-from .config import CertificateConfig, QuipuConfig
 from .modelo130 import Modelo130Data, generate_130_boe
 from .modelo303 import Modelo303Data, generate_303_boe
 from .quipu import QuipuClient
@@ -30,14 +30,13 @@ if TYPE_CHECKING:
     from .submit import PresentacionDirectaClient, SubmissionResult
 
 
-def _load_config(config_path: Path) -> dict[str, Any]:
+def _load_config(config_path: Path) -> AeatConfig:
     """Load configuration from a JSON file."""
     if not config_path.exists():
         click.echo(f"Config file not found: {config_path}", err=True)
         click.echo("Create one with: aeat init", err=True)
         sys.exit(1)
-    result: dict[str, Any] = json.loads(config_path.read_text())
-    return result
+    return AeatConfig.from_file(config_path)
 
 
 @click.group()
@@ -94,13 +93,9 @@ def init(ctx: click.Context) -> None:
 def quipu_totals(ctx: click.Context, year: int, quarter: str) -> None:
     """Fetch quarterly totals from Quipu."""
     config = _load_config(ctx.obj["config_path"])
-    quipu_cfg = QuipuConfig(
-        api_key=config["quipu"]["api_key"],
-        api_secret=config["quipu"]["api_secret"],
-    )
 
     q_num = int(quarter[0])
-    with QuipuClient(quipu_cfg) as client:
+    with QuipuClient(config.quipu) as client:
         totals = client.get_quarterly_totals(year, q_num)
 
     click.echo(f"Quipu quarterly totals — {year} {quarter}")
@@ -133,37 +128,28 @@ def generate_303(
 ) -> None:
     """Generate Modelo 303 (quarterly VAT)."""
     config = _load_config(ctx.obj["config_path"])
-    declarant = config["declarant"]
-
-    nombre_completo = (
-        declarant.get("apellidos", "") + " " + declarant.get("nombre", "")
-    ).strip()
 
     if from_quipu:
-        quipu_cfg = QuipuConfig(
-            api_key=config["quipu"]["api_key"],
-            api_secret=config["quipu"]["api_secret"],
-        )
         q_num = int(quarter[0])
-        with QuipuClient(quipu_cfg) as client:
+        with QuipuClient(config.quipu) as client:
             totals = client.get_quarterly_totals(year, q_num)
 
         data = Modelo303Data(
-            nif=declarant["nif"],
-            nombre_razon=nombre_completo,
+            nif=config.declarant.nif,
+            nombre_razon=config.declarant.nombre_completo,
             exercise=year,
             period=quarter,
             base_21=totals.total_income_gross,
             cuota_21=totals.total_vat_collected,
             base_deducible_interior=totals.total_expenses_gross,
             cuota_deducible_interior=totals.total_vat_deductible,
-            cuenta_iban=config.get("iban", ""),
+            cuenta_iban=config.iban,
         )
     else:
         click.echo("Enter amounts for Modelo 303:")
         data = Modelo303Data(
-            nif=declarant["nif"],
-            nombre_razon=nombre_completo,
+            nif=config.declarant.nif,
+            nombre_razon=config.declarant.nombre_completo,
             exercise=year,
             period=quarter,
             base_21=Decimal(click.prompt("Base imponible 21%", default="0")),
@@ -176,7 +162,7 @@ def generate_303(
             cuota_deducible_interior=Decimal(
                 click.prompt("Cuota IVA deducible", default="0")
             ),
-            cuenta_iban=config.get("iban", ""),
+            cuenta_iban=config.iban,
         )
 
     boe = generate_303_boe(data)
@@ -217,50 +203,43 @@ def generate_130(
 ) -> None:
     """Generate Modelo 130 (quarterly IRPF advance)."""
     config = _load_config(ctx.obj["config_path"])
-    declarant = config["declarant"]
 
     if from_quipu:
-        quipu_cfg = QuipuConfig(
-            api_key=config["quipu"]["api_key"],
-            api_secret=config["quipu"]["api_secret"],
-        )
         # For 130, we need ACCUMULATED income from Q1 through current quarter
         q_num = int(quarter[0])
         total_income = Decimal("0")
         total_expenses = Decimal("0")
 
-        with QuipuClient(quipu_cfg) as client:
+        with QuipuClient(config.quipu) as client:
             for q in range(1, q_num + 1):
                 totals = client.get_quarterly_totals(year, q)
                 total_income += totals.total_income_gross
                 total_expenses += totals.total_expenses_gross
 
-        rendimiento_neto = total_income - total_expenses
-
         data = Modelo130Data(
-            nif=declarant["nif"],
-            apellidos=declarant.get("apellidos", declarant.get("name", "")),
-            nombre=declarant.get("nombre", ""),
+            nif=config.declarant.nif,
+            apellidos=config.declarant.apellidos,
+            nombre=config.declarant.nombre,
             exercise=year,
             period=quarter,
             ingresos=total_income,
             gastos=total_expenses,
             pagos_anteriores=Decimal(prev_payments),
-            cuenta_iban=config.get("iban", ""),
+            cuenta_iban=config.iban,
         )
     else:
         click.echo("Enter amounts for Modelo 130 (year-to-date cumulative):")
         data = Modelo130Data(
-            nif=declarant["nif"],
-            apellidos=declarant.get("apellidos", declarant.get("name", "")),
-            nombre=declarant.get("nombre", ""),
+            nif=config.declarant.nif,
+            apellidos=config.declarant.apellidos,
+            nombre=config.declarant.nombre,
             exercise=year,
             period=quarter,
             ingresos=Decimal(click.prompt("Ingresos computables (acumulado)", default="0")),
             gastos=Decimal(click.prompt("Gastos deducibles (acumulado)", default="0")),
             pagos_anteriores=Decimal(prev_payments),
             retenciones=Decimal(click.prompt("Retenciones soportadas", default="0")),
-            cuenta_iban=config.get("iban", ""),
+            cuenta_iban=config.iban,
         )
 
     boe = generate_130_boe(data)
@@ -312,15 +291,7 @@ def simulate(ctx: click.Context, year: int | None, quarters: str, output_dir: Pa
         year = date.today().year
 
     config = _load_config(ctx.obj["config_path"])
-    declarant = config["declarant"]
-    quipu_cfg = QuipuConfig(
-        api_key=config["quipu"]["api_key"],
-        api_secret=config["quipu"]["api_secret"],
-    )
-    nombre_completo = (
-        declarant.get("apellidos", "") + " " + declarant.get("nombre", "")
-    ).strip()
-    iban = config.get("iban", "")
+    iban = config.iban
 
     quarter_list = [q.strip() for q in quarters.split(",")]
     for q in quarter_list:
@@ -339,7 +310,7 @@ def simulate(ctx: click.Context, year: int | None, quarters: str, output_dir: Pa
     # Fetch quarterly data from Quipu
     click.echo(f"Fetching Quipu data for {year}...\n")
     quarterly_data = {}
-    with QuipuClient(quipu_cfg) as client:
+    with QuipuClient(config.quipu) as client:
         for q in quarters_to_fetch:
             q_num = int(q[0])
             quarterly_data[q] = client.get_quarterly_totals(year, q_num)
@@ -362,9 +333,9 @@ def simulate(ctx: click.Context, year: int | None, quarters: str, output_dir: Pa
 
         # Build Modelo 130 for this quarter (needed for payment accumulation)
         m130 = Modelo130Data(
-            nif=declarant["nif"],
-            apellidos=declarant.get("apellidos", ""),
-            nombre=declarant.get("nombre", ""),
+            nif=config.declarant.nif,
+            apellidos=config.declarant.apellidos,
+            nombre=config.declarant.nombre,
             exercise=year,
             period=q,
             ingresos=accum_income,
@@ -398,8 +369,8 @@ def simulate(ctx: click.Context, year: int | None, quarters: str, output_dir: Pa
 
         # --- Modelo 303 ---
         m303 = Modelo303Data(
-            nif=declarant["nif"],
-            nombre_razon=nombre_completo,
+            nif=config.declarant.nif,
+            nombre_razon=config.declarant.nombre_completo,
             exercise=year,
             period=q,
             base_21=totals.total_income_gross,
@@ -486,22 +457,15 @@ def submit() -> None:
     """Submit declarations to AEAT."""
 
 
-def _make_submit_client(config: dict[str, Any]) -> PresentacionDirectaClient:
+def _make_submit_client(config: AeatConfig) -> PresentacionDirectaClient:
     """Create a PresentacionDirectaClient from config."""
     from .submit import PresentacionDirectaClient
 
-    cert_cfg = CertificateConfig(
-        pfx_path=Path(config["certificate"]["pfx_path"]),
-        password=config["certificate"]["password"],
-    )
-    declarant = config["declarant"]
-    nombre = declarant.get("apellidos", "") + " " + declarant.get("nombre", "")
-
     return PresentacionDirectaClient(
-        cert_cfg,
-        nif_presentador=declarant["nif"],
-        nombre_presentador=nombre.strip(),
-        testing=config.get("testing", True),
+        config.certificate,
+        nif_presentador=config.declarant.nif,
+        nombre_presentador=config.declarant.nombre_completo,
+        testing=config.testing,
     )
 
 

@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
-from typing import Any
 
+from pydantic import model_validator
 from pydantic_settings import BaseSettings
+
+from ..config import AeatConfig, CertificateConfig, DeclarantConfig, QuipuConfig
 
 
 class ApiSettings(BaseSettings):
@@ -20,27 +21,57 @@ class ApiSettings(BaseSettings):
     port: int = 8000
     api_key: str = ""
 
-    # AEAT certificate
-    cert_path: str = ""
-    cert_password: str = ""
-
-    # Quipu
-    quipu_key: str = ""
-    quipu_secret: str = ""
-
-    # Declarant
-    declarant_nif: str = ""
-    declarant_apellidos: str = ""
-    declarant_nombre: str = ""
+    # Nested config (populated from file, overridable via env)
+    declarant: DeclarantConfig = DeclarantConfig()
+    certificate: CertificateConfig = CertificateConfig()
+    quipu: QuipuConfig = QuipuConfig()
     iban: str = ""
-
-    # Flags
     testing: bool = True
 
     # Config file path (used to load defaults before env override)
     config: str = "aeat-config.json"
 
+    # Flat env var aliases for certificate/quipu/declarant fields
+    cert_path: str = ""
+    cert_password: str = ""
+    quipu_key: str = ""
+    quipu_secret: str = ""
+    declarant_nif: str = ""
+    declarant_apellidos: str = ""
+    declarant_nombre: str = ""
+
     model_config = {"env_prefix": "AEAT_"}
+
+    @model_validator(mode="after")
+    def _apply_flat_env_overrides(self) -> ApiSettings:
+        """Merge flat env vars (AEAT_CERT_PATH, etc.) into nested models."""
+        if self.cert_path or self.cert_password:
+            merged = self.certificate.model_dump()
+            if self.cert_path:
+                merged["pfx_path"] = self.cert_path
+            if self.cert_password:
+                merged["password"] = self.cert_password
+            object.__setattr__(self, "certificate", CertificateConfig(**merged))
+
+        if self.quipu_key or self.quipu_secret:
+            merged = self.quipu.model_dump()
+            if self.quipu_key:
+                merged["api_key"] = self.quipu_key
+            if self.quipu_secret:
+                merged["api_secret"] = self.quipu_secret
+            object.__setattr__(self, "quipu", QuipuConfig(**merged))
+
+        if self.declarant_nif or self.declarant_apellidos or self.declarant_nombre:
+            merged = self.declarant.model_dump()
+            if self.declarant_nif:
+                merged["nif"] = self.declarant_nif
+            if self.declarant_apellidos:
+                merged["apellidos"] = self.declarant_apellidos
+            if self.declarant_nombre:
+                merged["nombre"] = self.declarant_nombre
+            object.__setattr__(self, "declarant", DeclarantConfig(**merged))
+
+        return self
 
 
 def load_settings() -> ApiSettings:
@@ -49,26 +80,16 @@ def load_settings() -> ApiSettings:
     preliminary = ApiSettings()
     config_path = Path(preliminary.config)
 
-    file_values: dict[str, Any] = {}
+    file_values: dict = {}
     if config_path.exists():
-        raw = json.loads(config_path.read_text())
-        declarant = raw.get("declarant", {})
-        cert = raw.get("certificate", {})
-        quipu = raw.get("quipu", {})
-
+        aeat_config = AeatConfig.from_file(config_path)
         file_values = {
-            "declarant_nif": declarant.get("nif", ""),
-            "declarant_apellidos": declarant.get("apellidos", ""),
-            "declarant_nombre": declarant.get("nombre", ""),
-            "cert_path": cert.get("pfx_path", ""),
-            "cert_password": cert.get("password", ""),
-            "quipu_key": quipu.get("api_key", ""),
-            "quipu_secret": quipu.get("api_secret", ""),
-            "iban": raw.get("iban", ""),
-            "testing": raw.get("testing", True),
+            "declarant": aeat_config.declarant,
+            "certificate": aeat_config.certificate,
+            "quipu": aeat_config.quipu,
+            "iban": aeat_config.iban,
+            "testing": aeat_config.testing,
         }
 
-    # Rebuild settings: file values serve as defaults, env vars override
-    return ApiSettings(**{
-        k: v for k, v in file_values.items() if v
-    })
+    # Rebuild settings: file values serve as defaults, env vars override via model_validator
+    return ApiSettings(**file_values)
