@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from decimal import Decimal
+from typing import Any
 
 import httpx
 
@@ -66,7 +67,7 @@ class QuipuClient:
         self._token = resp.json()["access_token"]
         return self._token
 
-    def _get(self, path: str, params: dict | None = None) -> dict:
+    def _get(self, path: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
         """Authenticated GET request."""
         token = self._authenticate()
         resp = self._http.get(
@@ -78,7 +79,8 @@ class QuipuClient:
             },
         )
         resp.raise_for_status()
-        return resp.json()
+        result: dict[str, Any] = resp.json()
+        return result
 
     def get_quarterly_totals(self, year: int, quarter: int) -> QuarterlyTotals:
         """Extract quarterly totals from Quipu invoices.

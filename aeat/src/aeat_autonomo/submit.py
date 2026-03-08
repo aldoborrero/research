@@ -21,6 +21,7 @@ import subprocess
 import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 import httpx
 
@@ -40,7 +41,7 @@ class SubmissionResult:
     pdf_base64: str = ""  # Base64 PDF (from validation)
     warnings: list[str] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
-    raw_response: dict | str = field(default_factory=dict)
+    raw_response: dict[str, Any] | str = field(default_factory=dict)
 
 
 def _convert_p12_to_pem(pfx_path: Path, password: str) -> tuple[Path, Path]:
@@ -267,7 +268,7 @@ class PresentacionDirectaClient:
 
         return response.text
 
-    def _parse_presentacion_response(self, data: dict) -> SubmissionResult:
+    def _parse_presentacion_response(self, data: dict[str, Any]) -> SubmissionResult:
         """Parse JSON response from PresBasicaDos."""
         respuesta = data.get("respuesta", {})
 
@@ -293,7 +294,7 @@ class PresentacionDirectaClient:
 
         return SubmissionResult(success=False, raw_response=data)
 
-    def _parse_validacion_response(self, data: dict) -> SubmissionResult:
+    def _parse_validacion_response(self, data: dict[str, Any]) -> SubmissionResult:
         """Parse JSON response from ServValiDos."""
         if "PDF" in data:
             return SubmissionResult(

@@ -15,6 +15,7 @@ import sys
 from datetime import date
 from decimal import Decimal
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 import click
 
@@ -24,14 +25,18 @@ from .modelo130 import Modelo130Data, generate_130_boe
 from .modelo303 import Modelo303Data, generate_303_boe
 from .quipu import QuipuClient
 
+if TYPE_CHECKING:
+    from .submit import PresentacionDirectaClient, SubmissionResult
 
-def _load_config(config_path: Path) -> dict:
+
+def _load_config(config_path: Path) -> dict[str, Any]:
     """Load configuration from a JSON file."""
     if not config_path.exists():
         click.echo(f"Config file not found: {config_path}", err=True)
         click.echo("Create one with: aeat init", err=True)
         sys.exit(1)
-    return json.loads(config_path.read_text())
+    result: dict[str, Any] = json.loads(config_path.read_text())
+    return result
 
 
 @click.group()
@@ -454,7 +459,7 @@ def submit() -> None:
     """Submit declarations to AEAT."""
 
 
-def _make_submit_client(config: dict) -> "PresentacionDirectaClient":
+def _make_submit_client(config: dict[str, Any]) -> PresentacionDirectaClient:
     """Create a PresentacionDirectaClient from config."""
     from .submit import PresentacionDirectaClient
 
@@ -473,10 +478,8 @@ def _make_submit_client(config: dict) -> "PresentacionDirectaClient":
     )
 
 
-def _print_submit_result(result: "SubmissionResult", dry_run: bool = False) -> None:
+def _print_submit_result(result: SubmissionResult, dry_run: bool = False) -> None:
     """Print submission/validation result."""
-    from .submit import SubmissionResult
-
     if result.success:
         if dry_run:
             click.echo("Validation passed!")
