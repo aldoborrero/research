@@ -454,6 +454,31 @@ def simulate(ctx: click.Context, year: int | None, quarters: str, output_dir: Pa
     click.echo(f"    IRPF advance paid:    {accum_130_payments:>12.2f} €")
 
 
+@main.command("serve")
+@click.option("--host", default="0.0.0.0", envvar="AEAT_HOST", help="Bind host.")
+@click.option("--port", default=8000, type=int, envvar="AEAT_PORT", help="Bind port.")
+@click.option("--reload", "use_reload", is_flag=True, help="Enable auto-reload (dev mode).")
+@click.pass_context
+def serve(ctx: click.Context, host: str, port: int, use_reload: bool) -> None:
+    """Start the REST API server."""
+    try:
+        import uvicorn
+    except ImportError:
+        click.echo("API dependencies not installed. Run: pip install aeat-autonomo[api]", err=True)
+        sys.exit(1)
+
+    # Pass config path via env so the API can pick it up
+    import os
+    os.environ.setdefault("AEAT_CONFIG", str(ctx.obj["config_path"]))
+
+    uvicorn.run(
+        "aeat_autonomo.api:app",
+        host=host,
+        port=port,
+        reload=use_reload,
+    )
+
+
 @main.group()
 def submit() -> None:
     """Submit declarations to AEAT."""

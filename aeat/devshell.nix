@@ -11,6 +11,11 @@ pkgs.mkShell {
         # requests-pkcs12 — not in nixpkgs, install via pip
         # pip install requests-pkcs12
 
+        # API deps
+        fastapi
+        uvicorn
+        pydantic-settings
+
         # Dev/test deps
         pytest
         pytest-httpx
@@ -36,6 +41,6 @@ pkgs.mkShell {
     echo "  python:  $(python3 --version)"
     echo "  openssl: $(openssl version)"
     echo ""
-    echo "Run: pip install -e '.[dev]'  # for requests-pkcs12 + editable install"
+    echo "Run: pip install -e '.[dev,api]'  # for requests-pkcs12 + API + editable install"
   '';
 }
