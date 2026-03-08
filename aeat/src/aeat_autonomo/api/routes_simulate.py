@@ -8,11 +8,14 @@ from decimal import Decimal
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from ..config import QuipuConfig
+from ..logging import get_logger
 from ..modelo130 import Modelo130Data
 from ..modelo303 import Modelo303Data
 from ..quipu import QuipuClient
 from .auth import require_api_key
 from .config import ApiSettings
+
+log = get_logger(__name__)
 from .schemas import (
     AnnualSummary,
     QuipuTotalsResponse,
@@ -39,6 +42,7 @@ def simulate(
 
     Generates both Modelo 303 and 130 for each quarter without submitting.
     """
+    log.info("simulate_request", year=year, quarters=quarters)
     settings = _get_settings()
     if not settings.quipu_key:
         raise HTTPException(status_code=400, detail="Quipu credentials not configured")
@@ -145,6 +149,8 @@ def simulate(
 
         if m130.resultado > 0:
             accum_130_payments += m130.resultado
+
+    log.info("simulate_complete", year=year, quarters_count=len(results))
 
     return SimulateResponse(
         year=year,

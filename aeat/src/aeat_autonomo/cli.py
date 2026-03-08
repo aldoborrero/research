@@ -20,6 +20,7 @@ from typing import TYPE_CHECKING, Any
 import click
 
 from .boe import encode_boe
+from .logging import setup_logging
 from .config import CertificateConfig, QuipuConfig
 from .modelo130 import Modelo130Data, generate_130_boe
 from .modelo303 import Modelo303Data, generate_303_boe
@@ -51,6 +52,7 @@ def _load_config(config_path: Path) -> dict[str, Any]:
 @click.pass_context
 def main(ctx: click.Context, config_path: Path) -> None:
     """AEAT tax automation for autónomos."""
+    setup_logging(json_output=False)
     ctx.ensure_object(dict)
     ctx.obj["config_path"] = config_path
 

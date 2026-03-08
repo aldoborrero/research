@@ -26,6 +26,9 @@ from typing import Any
 import httpx
 
 from .config import CertificateConfig
+from .logging import get_logger
+
+log = get_logger(__name__)
 
 
 @dataclass
@@ -139,7 +142,13 @@ class PresentacionDirectaClient:
             self._cert_pem, self._key_pem = _convert_p12_to_pem(
                 cert_config.pfx_path, cert_config.password
             )
+            log.info(
+                "certificate_loaded",
+                pfx_path=str(cert_config.pfx_path),
+                testing=testing,
+            )
         except Exception:
+            log.error("certificate_load_failed", pfx_path=str(cert_config.pfx_path))
             self.close()
             raise
 
@@ -185,6 +194,15 @@ class PresentacionDirectaClient:
 
         url = self.TEST_PRESENTACION if self._testing else self.PROD_PRESENTACION
 
+        log.info(
+            "aeat_submit_start",
+            modelo=modelo,
+            ejercicio=ejercicio,
+            periodo=periodo,
+            has_nrc=bool(nrc),
+            environment="test" if self._testing else "production",
+        )
+
         with self._client() as client:
             response = client.post(
                 url,
@@ -193,7 +211,17 @@ class PresentacionDirectaClient:
             )
             response.raise_for_status()
 
-        return self._parse_presentacion_response(response.json())
+        result = self._parse_presentacion_response(response.json())
+        log.info(
+            "aeat_submit_complete",
+            modelo=modelo,
+            ejercicio=ejercicio,
+            periodo=periodo,
+            success=result.success,
+            csv=result.csv,
+            errors=result.errors,
+        )
+        return result
 
     def validate(
         self,
@@ -218,6 +246,13 @@ class PresentacionDirectaClient:
             "F01": _strip_boe(boe_content),
         }
 
+        log.info(
+            "aeat_validate_start",
+            modelo=modelo,
+            ejercicio=ejercicio,
+            periodo=periodo,
+        )
+
         with self._client() as client:
             response = client.post(
                 self.TEST_VALIDACION,
@@ -226,7 +261,15 @@ class PresentacionDirectaClient:
             )
             response.raise_for_status()
 
-        return self._parse_validacion_response(response.json())
+        result = self._parse_validacion_response(response.json())
+        log.info(
+            "aeat_validate_complete",
+            modelo=modelo,
+            ejercicio=ejercicio,
+            periodo=periodo,
+            success=result.success,
+        )
+        return result
 
     def consultar(
         self,
@@ -325,6 +368,7 @@ class PresentacionDirectaClient:
             self._cert_pem.unlink(missing_ok=True)
         if self._key_pem is not None:
             self._key_pem.unlink(missing_ok=True)
+        log.info("certificate_cleaned_up")
 
     def __enter__(self) -> PresentacionDirectaClient:
         return self

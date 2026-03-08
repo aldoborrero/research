@@ -5,10 +5,13 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from ..config import QuipuConfig
+from ..logging import get_logger
 from ..quipu import QuipuClient
 from .auth import require_api_key
 from .config import ApiSettings
 from .schemas import Quarter, QuipuTotalsResponse
+
+log = get_logger(__name__)
 
 router = APIRouter(prefix="/api/v1/quipu", tags=["quipu"], dependencies=[Depends(require_api_key)])
 
@@ -24,6 +27,7 @@ def quipu_totals(
     quarter: Quarter = Query(..., examples=["1T"]),
 ) -> QuipuTotalsResponse:
     """Fetch quarterly totals from Quipu."""
+    log.info("quipu_totals_request", year=year, quarter=quarter)
     settings = _get_settings()
     if not settings.quipu_key:
         raise HTTPException(status_code=400, detail="Quipu credentials not configured")

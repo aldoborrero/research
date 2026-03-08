@@ -2,54 +2,46 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 from fastapi import APIRouter, Depends, HTTPException
 
-from ..config import CertificateConfig
-from ..submit import PresentacionDirectaClient
+from ..logging import get_logger
 from .auth import require_api_key
-from .config import ApiSettings
 from .schemas import SubmitRequest, SubmitResponse
+
+log = get_logger(__name__)
 
 router = APIRouter(prefix="/api/v1", tags=["submit"], dependencies=[Depends(require_api_key)])
 
 
-def _get_settings() -> ApiSettings:
-    from . import _settings
-    return _settings
-
-
-def _make_client(settings: ApiSettings) -> PresentacionDirectaClient:
-    """Create a PresentacionDirectaClient from API settings."""
-    if not settings.cert_path or not settings.cert_password:
+def _get_client():
+    from . import get_submit_client
+    client = get_submit_client()
+    if client is None:
         raise HTTPException(status_code=400, detail="Certificate not configured")
-
-    cert_cfg = CertificateConfig(
-        pfx_path=Path(settings.cert_path),
-        password=settings.cert_password,
-    )
-    nombre = f"{settings.declarant_apellidos} {settings.declarant_nombre}".strip()
-
-    return PresentacionDirectaClient(
-        cert_cfg,
-        nif_presentador=settings.declarant_nif,
-        nombre_presentador=nombre,
-        testing=settings.testing,
-    )
+    return client
 
 
 @router.post("/submit/303", response_model=SubmitResponse)
 def submit_303(req: SubmitRequest) -> SubmitResponse:
     """Submit Modelo 303 to AEAT via Presentacion Directa."""
-    settings = _get_settings()
-    with _make_client(settings) as client:
-        if req.dry_run:
-            result = client.validate("303", str(req.year), req.quarter, req.boe_content)
-        else:
-            result = client.submit(
-                "303", str(req.year), req.quarter, req.boe_content, nrc=req.nrc,
-            )
+    client = _get_client()
+
+    log.info("submit_303_request", year=req.year, quarter=req.quarter, dry_run=req.dry_run)
+
+    if req.dry_run:
+        result = client.validate("303", str(req.year), req.quarter, req.boe_content)
+    else:
+        result = client.submit(
+            "303", str(req.year), req.quarter, req.boe_content, nrc=req.nrc,
+        )
+
+    log.info(
+        "submit_303_response",
+        year=req.year,
+        quarter=req.quarter,
+        success=result.success,
+        dry_run=req.dry_run,
+    )
 
     return SubmitResponse(
         success=result.success,
@@ -67,14 +59,24 @@ def submit_303(req: SubmitRequest) -> SubmitResponse:
 @router.post("/submit/130", response_model=SubmitResponse)
 def submit_130(req: SubmitRequest) -> SubmitResponse:
     """Submit Modelo 130 to AEAT via Presentacion Directa."""
-    settings = _get_settings()
-    with _make_client(settings) as client:
-        if req.dry_run:
-            result = client.validate("130", str(req.year), req.quarter, req.boe_content)
-        else:
-            result = client.submit(
-                "130", str(req.year), req.quarter, req.boe_content, nrc=req.nrc,
-            )
+    client = _get_client()
+
+    log.info("submit_130_request", year=req.year, quarter=req.quarter, dry_run=req.dry_run)
+
+    if req.dry_run:
+        result = client.validate("130", str(req.year), req.quarter, req.boe_content)
+    else:
+        result = client.submit(
+            "130", str(req.year), req.quarter, req.boe_content, nrc=req.nrc,
+        )
+
+    log.info(
+        "submit_130_response",
+        year=req.year,
+        quarter=req.quarter,
+        success=result.success,
+        dry_run=req.dry_run,
+    )
 
     return SubmitResponse(
         success=result.success,

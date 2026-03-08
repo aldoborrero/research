@@ -13,6 +13,9 @@ from typing import Any
 import httpx
 
 from .config import QuipuConfig
+from .logging import get_logger
+
+log = get_logger(__name__)
 
 
 @dataclass
@@ -65,6 +68,7 @@ class QuipuClient:
         )
         resp.raise_for_status()
         self._token = resp.json()["access_token"]
+        log.info("quipu_authenticated")
         return self._token
 
     def _get(self, path: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -104,10 +108,22 @@ class QuipuClient:
         else:
             date_to = f"{year}-{month_end + 1:02d}-01"
 
+        log.info("quipu_fetch_totals", year=year, quarter=quarter, date_from=date_from, date_to=date_to)
+
         # Fetch issued invoices (income)
         income = self._fetch_invoices("invoices", date_from, date_to)
         # Fetch received invoices (expenses)
         expenses = self._fetch_invoices("book_entries", date_from, date_to)
+
+        log.info(
+            "quipu_totals_fetched",
+            year=year,
+            quarter=quarter,
+            income_base=str(income["base"]),
+            income_vat=str(income["vat"]),
+            expenses_base=str(expenses["base"]),
+            expenses_vat=str(expenses["vat"]),
+        )
 
         return QuarterlyTotals(
             total_income_gross=income["base"],

@@ -7,11 +7,14 @@ from decimal import Decimal
 from fastapi import APIRouter, Depends, HTTPException
 
 from ..config import QuipuConfig
+from ..logging import get_logger
 from ..modelo130 import Modelo130Data, generate_130_boe
 from ..modelo303 import Modelo303Data, generate_303_boe
 from ..quipu import QuipuClient
 from .auth import require_api_key
 from .config import ApiSettings
+
+log = get_logger(__name__)
 from .schemas import (
     Generate130Request,
     Generate130Response,
@@ -32,6 +35,7 @@ def _get_settings() -> ApiSettings:
 @router.post("/303", response_model=Generate303Response)
 def generate_303(req: Generate303Request) -> Generate303Response:
     """Generate a Modelo 303 BOE file (quarterly VAT)."""
+    log.info("generate_303_request", year=req.year, quarter=req.quarter, from_quipu=req.from_quipu)
     settings = _get_settings()
     nombre_completo = f"{settings.declarant_apellidos} {settings.declarant_nombre}".strip()
 
@@ -72,6 +76,14 @@ def generate_303(req: Generate303Request) -> Generate303Response:
 
     boe = generate_303_boe(data)
 
+    log.info(
+        "generate_303_complete",
+        year=req.year,
+        quarter=req.quarter,
+        resultado=str(data.resultado),
+        tipo=data.tipo_declaracion,
+    )
+
     return Generate303Response(
         boe_content=boe,
         summary=Summary303(
@@ -87,6 +99,7 @@ def generate_303(req: Generate303Request) -> Generate303Response:
 @router.post("/130", response_model=Generate130Response)
 def generate_130(req: Generate130Request) -> Generate130Response:
     """Generate a Modelo 130 BOE file (quarterly IRPF advance)."""
+    log.info("generate_130_request", year=req.year, quarter=req.quarter, from_quipu=req.from_quipu)
     settings = _get_settings()
 
     if req.from_quipu:
@@ -128,6 +141,14 @@ def generate_130(req: Generate130Request) -> Generate130Response:
         )
 
     boe = generate_130_boe(data)
+
+    log.info(
+        "generate_130_complete",
+        year=req.year,
+        quarter=req.quarter,
+        resultado=str(data.resultado),
+        tipo=data.tipo_declaracion,
+    )
 
     return Generate130Response(
         boe_content=boe,
