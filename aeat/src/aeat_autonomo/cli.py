@@ -283,87 +283,117 @@ def submit() -> None:
     """Submit declarations to AEAT."""
 
 
+def _make_submit_client(config: dict) -> "PresentacionDirectaClient":
+    """Create a PresentacionDirectaClient from config."""
+    from .submit import PresentacionDirectaClient
+
+    cert_cfg = CertificateConfig(
+        pfx_path=Path(config["certificate"]["pfx_path"]),
+        password=config["certificate"]["password"],
+    )
+    declarant = config["declarant"]
+    nombre = declarant.get("apellidos", "") + " " + declarant.get("nombre", "")
+
+    return PresentacionDirectaClient(
+        cert_cfg,
+        nif_presentador=declarant["nif"],
+        nombre_presentador=nombre.strip(),
+        testing=config.get("testing", True),
+    )
+
+
+def _print_submit_result(result: "SubmissionResult", dry_run: bool = False) -> None:
+    """Print submission/validation result."""
+    from .submit import SubmissionResult
+
+    if result.success:
+        if dry_run:
+            click.echo("Validation passed!")
+            if result.pdf_base64:
+                click.echo("PDF preview available (use --save-pdf to save).")
+        else:
+            click.echo(f"Submitted successfully!")
+            click.echo(f"  CSV:          {result.csv}")
+            click.echo(f"  Justificante: {result.justificante}")
+            click.echo(f"  Fecha/Hora:   {result.fecha} {result.hora}")
+            if result.pdf_url:
+                click.echo(f"  PDF:          {result.pdf_url}")
+        if result.warnings:
+            click.echo("Warnings:")
+            for w in result.warnings:
+                click.echo(f"  - {w}")
+    else:
+        click.echo("Failed:", err=True)
+        for error in result.errors:
+            click.echo(f"  - {error}", err=True)
+        sys.exit(1)
+
+
 @submit.command("303")
 @click.option("--year", required=True, type=int)
 @click.option("--quarter", required=True, type=click.Choice(["1T", "2T", "3T", "4T"]))
 @click.option("--file", "boe_file", type=click.Path(exists=True, path_type=Path), required=True)
+@click.option("--nrc", default="", help="NRC payment reference (required for tipo=Ingreso).")
 @click.option("--dry-run", is_flag=True, help="Validate only, don't submit.")
+@click.option("--save-pdf", type=click.Path(path_type=Path), default=None)
 @click.pass_context
 def submit_303(
     ctx: click.Context,
     year: int,
     quarter: str,
     boe_file: Path,
+    nrc: str,
     dry_run: bool,
+    save_pdf: Path | None,
 ) -> None:
-    """Submit Modelo 303 via Servicios Comunes."""
+    """Submit Modelo 303 via Presentación Directa (JSON API)."""
     config = _load_config(ctx.obj["config_path"])
-    cert_cfg = CertificateConfig(
-        pfx_path=Path(config["certificate"]["pfx_path"]),
-        password=config["certificate"]["password"],
-    )
+    boe_content = boe_file.read_text(encoding="iso-8859-1")
 
-    boe_content = boe_file.read_text()
-    testing = config.get("testing", True)
-
-    from .submit import ServiciosComunesClient
-
-    with ServiciosComunesClient(cert_cfg, testing=testing) as client:
+    with _make_submit_client(config) as client:
         if dry_run:
-            click.echo("Validating (dry run)...")
-            result = client.validate("303", boe_content)
+            click.echo("Validating against AEAT test environment...")
+            result = client.validate("303", str(year), quarter, boe_content)
+            if result.success and save_pdf:
+                client.save_validation_pdf(result, save_pdf)
+                click.echo(f"PDF saved to {save_pdf}")
         else:
             click.echo("Submitting to AEAT...")
-            result = client.submit("303", boe_content)
+            result = client.submit("303", str(year), quarter, boe_content, nrc=nrc)
 
-    if result.success:
-        click.echo(f"Success! CSV: {result.csv}")
-        if result.timestamp:
-            click.echo(f"Timestamp: {result.timestamp}")
-    else:
-        click.echo("Submission failed:", err=True)
-        for error in result.errors:
-            click.echo(f"  - {error}", err=True)
-        sys.exit(1)
+    _print_submit_result(result, dry_run=dry_run)
 
 
 @submit.command("130")
 @click.option("--year", required=True, type=int)
 @click.option("--quarter", required=True, type=click.Choice(["1T", "2T", "3T", "4T"]))
 @click.option("--file", "boe_file", type=click.Path(exists=True, path_type=Path), required=True)
+@click.option("--nrc", default="", help="NRC payment reference (required for tipo=Ingreso).")
 @click.option("--dry-run", is_flag=True, help="Validate only, don't submit.")
+@click.option("--save-pdf", type=click.Path(path_type=Path), default=None)
 @click.pass_context
 def submit_130(
     ctx: click.Context,
     year: int,
     quarter: str,
     boe_file: Path,
+    nrc: str,
     dry_run: bool,
+    save_pdf: Path | None,
 ) -> None:
-    """Submit Modelo 130 via Servicios Comunes."""
+    """Submit Modelo 130 via Presentación Directa (JSON API)."""
     config = _load_config(ctx.obj["config_path"])
-    cert_cfg = CertificateConfig(
-        pfx_path=Path(config["certificate"]["pfx_path"]),
-        password=config["certificate"]["password"],
-    )
+    boe_content = boe_file.read_text(encoding="iso-8859-1")
 
-    boe_content = boe_file.read_text()
-    testing = config.get("testing", True)
-
-    from .submit import ServiciosComunesClient
-
-    with ServiciosComunesClient(cert_cfg, testing=testing) as client:
+    with _make_submit_client(config) as client:
         if dry_run:
-            click.echo("Validating (dry run)...")
-            result = client.validate("130", boe_content)
+            click.echo("Validating against AEAT test environment...")
+            result = client.validate("130", str(year), quarter, boe_content)
+            if result.success and save_pdf:
+                client.save_validation_pdf(result, save_pdf)
+                click.echo(f"PDF saved to {save_pdf}")
         else:
             click.echo("Submitting to AEAT...")
-            result = client.submit("130", boe_content)
+            result = client.submit("130", str(year), quarter, boe_content, nrc=nrc)
 
-    if result.success:
-        click.echo(f"Success! CSV: {result.csv}")
-    else:
-        click.echo("Submission failed:", err=True)
-        for error in result.errors:
-            click.echo(f"  - {error}", err=True)
-        sys.exit(1)
+    _print_submit_result(result, dry_run=dry_run)

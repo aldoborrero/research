@@ -1,20 +1,28 @@
-"""AEAT submission clients — Servicios Comunes SOAP and TGVI Online.
+"""AEAT submission clients — Presentación Directa (JSON API) and TGVI Online.
 
-Servicios Comunes v2.7 is used for autoliquidaciones (303, 130, 390).
-TGVI Online is used for informative declarations (347, 349).
+CRITICAL: Servicios Comunes v27.1 is NOT a SOAP service. It is a plain
+JSON-over-HTTPS API using mutual TLS (client certificate) authentication.
 
-Both use client certificate (mTLS) authentication via .p12/PFX files.
+Endpoints:
+  - Presentación Directa: POST JSON → PresBasicaDos
+  - Validación + PDF: POST JSON → ServValiDos (test env only)
+  - Consulta: POST form-urlencoded → ConsultaExt
+
+Supported models: 303, 130, 390, 100, 111, 115, 200, 202, 210, and many more.
+NOT supported: 006, 568, and all Declaraciones Informativas (use TGVI Online).
+
+Reference: AEAT Servicios Comunes Declaraciones v27.1 specification.
 """
 
 from __future__ import annotations
 
+import base64
 import subprocess
 import tempfile
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import httpx
-from requests_pkcs12 import Pkcs12Adapter
 
 from .config import CertificateConfig
 
@@ -24,16 +32,20 @@ class SubmissionResult:
     """Result of an AEAT declaration submission."""
 
     success: bool
-    csv: str  # Código Seguro de Verificación — receipt code
-    timestamp: str
-    raw_response: str
-    errors: list[str]
+    csv: str = ""  # Código Seguro de Verificación (16 chars)
+    justificante: str = ""  # Receipt number (13 chars)
+    fecha: str = ""  # Date of submission
+    hora: str = ""  # Time of submission
+    pdf_url: str = ""  # URL to download signed PDF
+    pdf_base64: str = ""  # Base64 PDF (from validation)
+    warnings: list[str] = field(default_factory=list)
+    errors: list[str] = field(default_factory=list)
+    raw_response: dict | str = field(default_factory=dict)
 
 
 def _convert_p12_to_pem(pfx_path: Path, password: str) -> tuple[Path, Path]:
     """Convert a .p12 file to separate PEM cert and key files.
 
-    Required for zeep/httpx which don't natively support PKCS#12.
     Returns (cert_path, key_path) as temporary files.
     """
     cert_file = tempfile.NamedTemporaryFile(suffix=".pem", delete=False)
@@ -64,149 +76,248 @@ def _convert_p12_to_pem(pfx_path: Path, password: str) -> tuple[Path, Path]:
     return Path(cert_file.name), Path(key_file.name)
 
 
-class ServiciosComunesClient:
-    """Client for AEAT Servicios Comunes Declaraciones v2.7.
+def _strip_boe(content: str) -> str:
+    """Strip CRLF and tabs from BOE content for the F01 JSON field.
 
-    Used to submit autoliquidaciones (303, 130, 390) via SOAP.
-    The service accepts the tagged BOE format (<T...>) directly.
+    AEAT requires the flat file as a single unbroken string — no newlines
+    or tabs allowed in the F01 field.
+    """
+    return content.replace("\r", "").replace("\n", "").replace("\t", "")
 
-    Production endpoint:
-        https://www1.agenciatributaria.gob.es/wlpl/SSGD-TGVI/ws/ServicioDeclaracion
 
-    Testing endpoint:
-        https://prewww1.aeat.es/wlpl/SSGD-TGVI/ws/ServicioDeclaracion
+class PresentacionDirectaClient:
+    """Client for AEAT Presentación Directa (autoliquidaciones).
+
+    Submits declarations for models 303, 130, 390, etc. via JSON POST
+    with mutual TLS authentication.
+
+    Protocol: JSON over HTTPS (NOT SOAP).
+    Auth: Client certificate — NIF in FIRNIF must match the certificate.
+
+    Endpoints:
+        Production: https://www1.agenciatributaria.gob.es/wlpl/PFTW-PICW/PresBasicaDos
+        Testing:    https://prewww1.aeat.es/wlpl/PFTW-PICW/PresBasicaDos
     """
 
-    PROD_URL = (
-        "https://www1.agenciatributaria.gob.es"
-        "/wlpl/SSII-FACT/ws/ServicioDeclaracion"
+    PROD_PRESENTACION = (
+        "https://www1.agenciatributaria.gob.es/wlpl/PFTW-PICW/PresBasicaDos"
     )
-    TEST_URL = (
-        "https://prewww1.aeat.es"
-        "/wlpl/SSII-FACT/ws/ServicioDeclaracion"
+    TEST_PRESENTACION = (
+        "https://prewww1.aeat.es/wlpl/PFTW-PICW/PresBasicaDos"
+    )
+
+    PROD_CONSULTA = (
+        "https://www1.agenciatributaria.gob.es/wlpl/SCEJ-MANT/ConsultaExt"
+    )
+    TEST_CONSULTA = (
+        "https://prewww1.aeat.es/wlpl/SCEJ-MANT/ConsultaExt"
+    )
+
+    # Validation is only available in the test environment
+    TEST_VALIDACION = (
+        "https://prewww2.aeat.es/wlpl/PFTW-PICW/ServValiDos"
     )
 
     def __init__(
         self,
         cert_config: CertificateConfig,
         *,
+        nif_presentador: str,
+        nombre_presentador: str,
         testing: bool = True,
     ) -> None:
         self._cert_config = cert_config
+        self._nif = nif_presentador
+        self._nombre = nombre_presentador
         self._testing = testing
-        self._base_url = self.TEST_URL if testing else self.PROD_URL
 
         # Convert p12 to PEM for httpx
         self._cert_pem, self._key_pem = _convert_p12_to_pem(
             cert_config.pfx_path, cert_config.password
         )
 
-    def submit(self, modelo: str, boe_content: str) -> SubmissionResult:
-        """Submit a declaration via Servicios Comunes.
+    def _client(self) -> httpx.Client:
+        return httpx.Client(
+            cert=(str(self._cert_pem), str(self._key_pem)),
+            verify=True,
+            timeout=60.0,
+        )
+
+    def submit(
+        self,
+        modelo: str,
+        ejercicio: str,
+        periodo: str,
+        boe_content: str,
+        nrc: str = "",
+    ) -> SubmissionResult:
+        """Submit a declaration via Presentación Directa.
 
         Args:
             modelo: Model number (e.g., "303", "130").
-            boe_content: The tagged BOE content string.
+            ejercicio: Tax year (e.g., "2026").
+            periodo: Period (e.g., "1T", "2T", "3T", "4T").
+            boe_content: The BOE flat file content.
+            nrc: Número de Referencia Completo — required only for
+                 payment type "I" (Ingreso). Leave empty for N/D/C/U.
 
         Returns:
             SubmissionResult with CSV receipt code on success.
         """
-        # Build the SOAP envelope for presentación directa
-        soap_body = self._build_soap_envelope(modelo, boe_content)
+        payload = {
+            "MODELO": modelo,
+            "EJERCICIO": ejercicio,
+            "PERIODO": periodo,
+            "NRC": nrc,
+            "IDI": "ES",
+            "F01": _strip_boe(boe_content),
+            "FIR": "FirmaBasica",
+            "FIRNIF": self._nif,
+            "FIRNOMBRE": self._nombre,
+        }
 
-        with httpx.Client(
-            cert=(str(self._cert_pem), str(self._key_pem)),
-            verify=True,
-            timeout=60.0,
-        ) as client:
+        url = self.TEST_PRESENTACION if self._testing else self.PROD_PRESENTACION
+
+        with self._client() as client:
             response = client.post(
-                self._base_url,
-                content=soap_body.encode("utf-8"),
-                headers={
-                    "Content-Type": "text/xml; charset=utf-8",
-                    "SOAPAction": '""',
-                },
+                url,
+                json=payload,
+                headers={"Content-Type": "application/json;charset=UTF-8"},
             )
+            response.raise_for_status()
 
-        return self._parse_response(response.text)
+        return self._parse_presentacion_response(response.json())
 
-    def validate(self, modelo: str, boe_content: str) -> SubmissionResult:
-        """Validate a declaration without submitting.
+    def validate(
+        self,
+        modelo: str,
+        ejercicio: str,
+        periodo: str,
+        boe_content: str,
+    ) -> SubmissionResult:
+        """Validate a declaration and get a PDF preview.
 
-        Same as submit but uses the validation endpoint.
+        Only available on the test environment (prewww2.aeat.es).
+        Weekdays 8:00-15:00h Spanish time.
+
+        Returns:
+            SubmissionResult with pdf_base64 on success.
         """
-        # For validation, we change the SOAP action
-        soap_body = self._build_soap_envelope(modelo, boe_content, action="validar")
+        payload = {
+            "MODELO": modelo,
+            "EJERCICIO": ejercicio,
+            "PERIODO": periodo,
+            "IDI": "ES",
+            "F01": _strip_boe(boe_content),
+        }
 
-        with httpx.Client(
-            cert=(str(self._cert_pem), str(self._key_pem)),
-            verify=True,
-            timeout=60.0,
-        ) as client:
+        with self._client() as client:
             response = client.post(
-                self._base_url,
-                content=soap_body.encode("utf-8"),
-                headers={
-                    "Content-Type": "text/xml; charset=utf-8",
-                    "SOAPAction": '"validar"',
-                },
+                self.TEST_VALIDACION,
+                json=payload,
+                headers={"Content-Type": "application/json;charset=UTF-8"},
+            )
+            response.raise_for_status()
+
+        return self._parse_validacion_response(response.json())
+
+    def consultar(
+        self,
+        modelo: str,
+        ejercicio: str,
+        periodo: str = "",
+        fecha_desde: str = "",
+        fecha_hasta: str = "",
+    ) -> str:
+        """Query previously submitted declarations.
+
+        Args:
+            fecha_desde/fecha_hasta: Format YYYYMMDD.
+
+        Returns:
+            Raw XML response conforming to AEAT's consultas.xsd.
+        """
+        data = {
+            "NIF": self._nif,
+            "ANR": self._nombre,
+            "MOD": modelo,
+            "EJF": ejercicio,
+            "PER": periodo,
+            "FED": fecha_desde,
+            "FEH": fecha_hasta,
+            "HOD": "",
+            "HOH": "",
+        }
+
+        url = self.TEST_CONSULTA if self._testing else self.PROD_CONSULTA
+
+        with self._client() as client:
+            response = client.post(
+                url,
+                data=data,
+                headers={"Content-Type": "application/x-www-form-urlencoded"},
+            )
+            response.raise_for_status()
+
+        return response.text
+
+    def _parse_presentacion_response(self, data: dict) -> SubmissionResult:
+        """Parse JSON response from PresBasicaDos."""
+        respuesta = data.get("respuesta", {})
+
+        if "correcta" in respuesta:
+            ok = respuesta["correcta"]
+            return SubmissionResult(
+                success=True,
+                csv=ok.get("CodigoSeguroVerificacion", ""),
+                justificante=ok.get("Justificante", ""),
+                fecha=ok.get("Fecha", ""),
+                hora=ok.get("Hora", ""),
+                pdf_url=ok.get("urlPdf", ""),
+                warnings=ok.get("avisos", []) + ok.get("advertencias", []),
+                raw_response=data,
             )
 
-        return self._parse_response(response.text)
+        if "errores" in respuesta:
+            return SubmissionResult(
+                success=False,
+                errors=respuesta["errores"],
+                raw_response=data,
+            )
 
-    def _build_soap_envelope(
-        self, modelo: str, boe_content: str, action: str = "presentar"
-    ) -> str:
-        """Build SOAP XML envelope for declaration submission."""
-        # Escape XML special characters in BOE content
-        escaped_boe = (
-            boe_content.replace("&", "&amp;")
-            .replace("<", "&lt;")
-            .replace(">", "&gt;")
-        )
+        return SubmissionResult(success=False, raw_response=data)
 
-        return f"""<?xml version="1.0" encoding="UTF-8"?>
-<soapenv:Envelope
-    xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/"
-    xmlns:dec="https://www2.agenciatributaria.gob.es/static_files/common/internet/dep/tgvi/ws/DeclaracionType.xsd">
-  <soapenv:Header/>
-  <soapenv:Body>
-    <dec:{action}Declaracion>
-      <dec:modelo>{modelo}</dec:modelo>
-      <dec:declaracion>{escaped_boe}</dec:declaracion>
-    </dec:{action}Declaracion>
-  </soapenv:Body>
-</soapenv:Envelope>"""
+    def _parse_validacion_response(self, data: dict) -> SubmissionResult:
+        """Parse JSON response from ServValiDos."""
+        if "PDF" in data:
+            return SubmissionResult(
+                success=True,
+                pdf_base64=data["PDF"],
+                warnings=data.get("AVISOS", []),
+                raw_response=data,
+            )
 
-    def _parse_response(self, xml_response: str) -> SubmissionResult:
-        """Parse AEAT SOAP response into SubmissionResult."""
-        # Simple XML parsing — in production use lxml/zeep response parsing
-        import re
+        if "errores" in data.get("respuesta", {}):
+            return SubmissionResult(
+                success=False,
+                errors=data["respuesta"]["errores"],
+                raw_response=data,
+            )
 
-        csv_match = re.search(r"<csv>(.+?)</csv>", xml_response, re.IGNORECASE)
-        timestamp_match = re.search(
-            r"<timestamp>(.+?)</timestamp>", xml_response, re.IGNORECASE
-        )
-        error_matches = re.findall(
-            r"<error>(.+?)</error>", xml_response, re.IGNORECASE
-        )
+        return SubmissionResult(success=False, raw_response=data)
 
-        success = csv_match is not None and not error_matches
-
-        return SubmissionResult(
-            success=success,
-            csv=csv_match.group(1) if csv_match else "",
-            timestamp=timestamp_match.group(1) if timestamp_match else "",
-            raw_response=xml_response,
-            errors=error_matches,
-        )
+    def save_validation_pdf(self, result: SubmissionResult, path: Path) -> None:
+        """Save the PDF from a validation result to a file."""
+        if not result.pdf_base64:
+            raise ValueError("No PDF in validation result")
+        path.write_bytes(base64.b64decode(result.pdf_base64))
 
     def close(self) -> None:
         """Clean up temporary PEM files."""
         self._cert_pem.unlink(missing_ok=True)
         self._key_pem.unlink(missing_ok=True)
 
-    def __enter__(self) -> ServiciosComunesClient:
+    def __enter__(self) -> PresentacionDirectaClient:
         return self
 
     def __exit__(self, *args: object) -> None:
@@ -264,7 +375,6 @@ class TGVIOnlineClient:
                 },
             )
 
-        # TGVI returns a simple response with CSV and errors
         return self._parse_response(response.text)
 
     def _parse_response(self, response_text: str) -> SubmissionResult:
@@ -277,7 +387,6 @@ class TGVIOnlineClient:
         return SubmissionResult(
             success=csv_match is not None and not errors,
             csv=csv_match.group(1) if csv_match else "",
-            timestamp="",
             raw_response=response_text,
             errors=errors,
         )
