@@ -1,0 +1,11 @@
+{
+  "name": "claude-code-lsp-nix",
+  "version": "1.0.0",
+  "description": "Nix LSP plugin for Claude Code using nixd language server",
+  "author": {
+    "name": "aldoborrero"
+  },
+  "license": "MIT",
+  "keywords": ["nix", "lsp", "nixd", "language-server"],
+  "lspServers": "./.lsp.json"
+}
