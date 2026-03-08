@@ -1,0 +1,6 @@
+/target
+/apk
+/result
+*.swp
+*.swo
+.direnv
