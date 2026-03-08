@@ -112,13 +112,32 @@ Protocol: HTTP file upload with client certificate.
 
 ### Testing with the Pre-production Environment
 
-The AEAT test environment (`prewww1`/`prewww2`) has important constraints:
+The AEAT pre-production environment (`prewww1`/`prewww2`) has been permanently available since January 2017.
 
-- **Availability**: Weekdays only, approximately 8:00–15:00h Spanish time (CET/CEST)
-- **Certificate**: Your real FNMT certificate works in pre. The NIF in `FIRNIF` must match the certificate.
-- **Validation endpoint** (`ServValiDos`): Returns a PDF preview of the declaration without actually filing it. Only available on `prewww2`.
-- **Submissions in pre are not real**: Declarations submitted to `prewww1` are not filed with Hacienda. Use this to test the full flow.
-- **Set `"testing": true`** in your config (the default) to use pre-production endpoints.
+Domain mapping rule: replace `www{N}.agenciatributaria.gob.es` → `prewww{N}.aeat.es`.
+
+| Pre-production | Production | Purpose |
+|----------------|------------|---------|
+| `prewww1.aeat.es` | `www1.agenciatributaria.gob.es` | Web services (personal/representative cert) |
+| `prewww2.aeat.es` | `www2.agenciatributaria.gob.es` | Form/file-based submissions |
+| `prewww10.aeat.es` | `www10.agenciatributaria.gob.es` | Web services (seal certificate) |
+| `preportal.aeat.es` | `sede.agenciatributaria.gob.es` | Main portal |
+
+Key facts:
+
+- **Permanently available** — no restricted hours (unannounced maintenance windows may occur)
+- **Same real FNMT certificate** works in both environments. Without a valid cert, you get HTTP 403.
+- **Submissions have no legal/tax validity** — stored in a separate test database
+- **Not all models available** — only those AEAT has published for external testing
+- **No mass testing** — the environment is for occasional testing only; AEAT may block abusive usage
+- **Set `"testing": true`** in your config (the default) to use pre-production endpoints
+
+> **Note**: The `PresBasicaDos` and `ServValiDos` endpoint names come from the Servicios Comunes v27.1 spec.
+> The current AEAT architecture uses ZK-based web apps (`/wlpl/{APP}-{MODULE}/index.zul`).
+> These endpoint paths need verification with a real certificate — they may have been updated.
+> The ZK-based alternative for Modelo 303 file submission is:
+> `https://prewww2.aeat.es/wlpl/A303-PW20/index.zul?EDFI=` (file upload)
+> `https://prewww2.aeat.es/wlpl/A303-PW20/index.zul?VALI=` (validation)
 
 Workflow for testing:
 
@@ -126,7 +145,7 @@ Workflow for testing:
 # 1. Generate the BOE file
 aeat generate 303 --year 2026 --quarter 1T --from-quipu -o test.boe
 
-# 2. Validate and get PDF preview (pre environment, weekdays 8-15h)
+# 2. Validate and get PDF preview (pre environment)
 aeat submit 303 --year 2026 --quarter 1T --file test.boe --dry-run --save-pdf preview.pdf
 
 # 3. Review preview.pdf — does it look right?
@@ -168,5 +187,7 @@ Reference implementation: [numtide/freelancer-toolbox/quipu](https://github.com/
 - [AEAT Diseños de Registro (Modelos 300-399)](https://sede.agenciatributaria.gob.es/Sede/ayuda/disenos-registro/modelos-300-399.html)
 - [AEAT Diseños de Registro (Modelos 100-199)](https://sede.agenciatributaria.gob.es/Sede/ayuda/disenos-registro/modelos-100-199.html)
 - [AEAT Servicios Comunes — Presentación Directa](https://sede.agenciatributaria.gob.es/Sede/ayuda/consultas-informaticas/presentacion-declaraciones-ayuda-tecnica.html)
+- [AEAT Pre-production Portal](https://preportal.aeat.es/PRE-Exteriores/Inicio/Inicio.html)
 - [OCA/l10n-spain Modelo 303 (Odoo)](https://github.com/OCA/l10n-spain/tree/16.0/l10n_es_aeat_mod303)
 - [Quipu API Docs](https://getquipu.com/developers)
+- [numtide/freelancer-toolbox Quipu client](https://github.com/numtide/freelancer-toolbox/tree/main/quipu/quipu_api)
