@@ -1,4 +1,5 @@
 use crate::config::data_dir;
+use crate::crypto::{decrypt_local, encrypt_local};
 use crate::error::{ClaveError, Result};
 use serde::{Deserialize, Serialize};
 
@@ -32,9 +33,12 @@ impl Session {
 
     pub fn delete() -> Result<()> {
         let _ = delete_from_keyring();
-        let path = data_dir()?.join("session.json");
-        if path.exists() {
-            std::fs::remove_file(path)?;
+        let dir = data_dir()?;
+        for name in ["session.enc", "session.json"] {
+            let path = dir.join(name);
+            if path.exists() {
+                let _ = std::fs::remove_file(path);
+            }
         }
         Ok(())
     }
@@ -76,16 +80,39 @@ fn delete_from_keyring() -> Result<()> {
 
 fn save_to_file(session: &Session) -> Result<()> {
     let dir = data_dir()?;
-    let json = serde_json::to_string_pretty(session)?;
-    std::fs::write(dir.join("session.json"), json)?;
+    let json = serde_json::to_string(session)?;
+    let encrypted = encrypt_local(json.as_bytes())?;
+    std::fs::write(dir.join("session.enc"), encrypted)?;
     // Also save NIF for keyring lookup
     std::fs::write(dir.join("session_nif.txt"), &session.nif)?;
+    // Remove any legacy plaintext session file
+    let legacy = dir.join("session.json");
+    if legacy.exists() {
+        let _ = std::fs::remove_file(legacy);
+    }
     Ok(())
 }
 
 fn load_from_file() -> Result<Session> {
-    let path = data_dir()?.join("session.json");
-    let data = std::fs::read_to_string(&path).map_err(|_| ClaveError::NoSession)?;
-    let session: Session = serde_json::from_str(&data)?;
-    Ok(session)
+    let dir = data_dir()?;
+    let enc_path = dir.join("session.enc");
+
+    if enc_path.exists() {
+        let data = std::fs::read(&enc_path).map_err(|_| ClaveError::NoSession)?;
+        let decrypted = decrypt_local(&data)?;
+        let session: Session = serde_json::from_slice(&decrypted)?;
+        return Ok(session);
+    }
+
+    // Migrate legacy plaintext session if present
+    let legacy_path = dir.join("session.json");
+    if legacy_path.exists() {
+        let data = std::fs::read_to_string(&legacy_path).map_err(|_| ClaveError::NoSession)?;
+        let session: Session = serde_json::from_str(&data)?;
+        // Re-save encrypted, which also removes the legacy file
+        save_to_file(&session)?;
+        return Ok(session);
+    }
+
+    Err(ClaveError::NoSession)
 }

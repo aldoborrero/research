@@ -1,3 +1,4 @@
+use crate::config::data_dir;
 use crate::error::{ClaveError, Result};
 use base64::Engine;
 
@@ -84,6 +85,113 @@ pub fn build_browser_payload(
     }
 
     payload
+}
+
+/// Encrypt data using AES-256-GCM with a locally-managed key.
+///
+/// Returns a JSON blob containing the base64-encoded nonce and ciphertext.
+/// The encryption key is generated on first use and stored in the data directory
+/// with restrictive file permissions (`0600`), mirroring how Android's
+/// `EncryptedSharedPreferences` protects data at rest via a master key stored
+/// in the Android Keystore.
+pub fn encrypt_local(plaintext: &[u8]) -> Result<Vec<u8>> {
+    use aes_gcm::{aead::Aead, Aes256Gcm, KeyInit, Nonce};
+    use rand::RngCore;
+
+    let key_bytes = load_or_create_local_key()?;
+    let cipher = Aes256Gcm::new_from_slice(&key_bytes)
+        .map_err(|e| ClaveError::Crypto(format!("AES-GCM key init failed: {e}")))?;
+
+    let mut nonce_bytes = [0u8; 12];
+    rand::thread_rng().fill_bytes(&mut nonce_bytes);
+    let nonce = Nonce::from_slice(&nonce_bytes);
+
+    let ciphertext = cipher
+        .encrypt(nonce, plaintext)
+        .map_err(|e| ClaveError::Crypto(format!("AES-GCM encrypt failed: {e}")))?;
+
+    let b64 = base64::engine::general_purpose::STANDARD;
+    let envelope = serde_json::json!({
+        "v": 1,
+        "nonce": b64.encode(nonce_bytes),
+        "data": b64.encode(&ciphertext),
+    });
+    serde_json::to_vec(&envelope).map_err(Into::into)
+}
+
+/// Decrypt data that was encrypted with [`encrypt_local`].
+pub fn decrypt_local(encrypted: &[u8]) -> Result<Vec<u8>> {
+    use aes_gcm::{aead::Aead, Aes256Gcm, KeyInit, Nonce};
+
+    let envelope: serde_json::Value = serde_json::from_slice(encrypted)?;
+    let b64 = base64::engine::general_purpose::STANDARD;
+
+    let nonce_b64 = envelope["nonce"]
+        .as_str()
+        .ok_or_else(|| ClaveError::Crypto("missing nonce in encrypted envelope".into()))?;
+    let data_b64 = envelope["data"]
+        .as_str()
+        .ok_or_else(|| ClaveError::Crypto("missing data in encrypted envelope".into()))?;
+
+    let nonce_bytes = b64
+        .decode(nonce_b64)
+        .map_err(|e| ClaveError::Crypto(format!("invalid nonce base64: {e}")))?;
+    let ciphertext = b64
+        .decode(data_b64)
+        .map_err(|e| ClaveError::Crypto(format!("invalid data base64: {e}")))?;
+
+    let key_bytes = load_or_create_local_key()?;
+    let cipher = Aes256Gcm::new_from_slice(&key_bytes)
+        .map_err(|e| ClaveError::Crypto(format!("AES-GCM key init failed: {e}")))?;
+    let nonce = Nonce::from_slice(&nonce_bytes);
+
+    cipher
+        .decrypt(nonce, ciphertext.as_ref())
+        .map_err(|e| ClaveError::Crypto(format!("AES-GCM decrypt failed: {e}")))
+}
+
+/// Load (or generate on first use) a 256-bit AES key stored at
+/// `$XDG_DATA_HOME/clave-cli/.key`.
+///
+/// The file is created with mode `0600` so only the owning user can read it.
+fn load_or_create_local_key() -> Result<[u8; 32]> {
+    let key_path = data_dir()?.join(".key");
+
+    if key_path.exists() {
+        let raw = std::fs::read(&key_path)?;
+        let decoded = base64::engine::general_purpose::STANDARD
+            .decode(raw.as_slice())
+            .map_err(|e| ClaveError::Crypto(format!("corrupt key file: {e}")))?;
+        let key: [u8; 32] = decoded
+            .try_into()
+            .map_err(|_| ClaveError::Crypto("key file has wrong length".into()))?;
+        Ok(key)
+    } else {
+        use rand::RngCore;
+
+        let mut key = [0u8; 32];
+        rand::thread_rng().fill_bytes(&mut key);
+        let encoded = base64::engine::general_purpose::STANDARD.encode(key);
+
+        // Write with restrictive permissions (owner read/write only)
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            let mut opts = std::fs::OpenOptions::new();
+            opts.write(true).create_new(true).mode(0o600);
+            use std::io::Write;
+            let mut f = opts
+                .open(&key_path)
+                .map_err(|e| ClaveError::Crypto(format!("failed to create key file: {e}")))?;
+            f.write_all(encoded.as_bytes())?;
+        }
+        #[cfg(not(unix))]
+        {
+            std::fs::write(&key_path, encoded.as_bytes())?;
+        }
+
+        Ok(key)
+    }
 }
 
 fn hex_to_bytes(hex: &str) -> Result<Vec<u8>> {
