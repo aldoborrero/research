@@ -58,7 +58,8 @@ def init(ctx: click.Context) -> None:
     sample = {
         "declarant": {
             "nif": "12345678A",
-            "name": "GARCIA LOPEZ JUAN",
+            "apellidos": "GARCIA LOPEZ",
+            "nombre": "JUAN",
         },
         "certificate": {
             "pfx_path": "./certificado.p12",
@@ -135,7 +136,7 @@ def generate_303(
 
         data = Modelo303Data(
             nif=declarant["nif"],
-            name=declarant["name"],
+            name=declarant.get("apellidos", "") + " " + declarant.get("nombre", ""),
             exercise=year,
             period=quarter,
             base_21=totals.total_income_gross,
@@ -149,7 +150,7 @@ def generate_303(
         click.echo("Enter amounts for Modelo 303:")
         data = Modelo303Data(
             nif=declarant["nif"],
-            name=declarant["name"],
+            name=declarant.get("apellidos", "") + " " + declarant.get("nombre", ""),
             exercise=year,
             period=quarter,
             base_21=Decimal(click.prompt("Base imponible 21%", default="0")),
@@ -235,30 +236,29 @@ def generate_130(
 
         data = Modelo130Data(
             nif=declarant["nif"],
-            name=declarant["name"],
+            apellidos=declarant.get("apellidos", declarant.get("name", "")),
+            nombre=declarant.get("nombre", ""),
             exercise=year,
             period=quarter,
-            rendimiento_neto_acumulado=rendimiento_neto,
+            ingresos=total_income,
+            gastos=total_expenses,
             pagos_anteriores=Decimal(prev_payments),
             cuenta_iban=config.get("iban", ""),
         )
     else:
-        click.echo("Enter amounts for Modelo 130:")
+        click.echo("Enter amounts for Modelo 130 (year-to-date cumulative):")
         data = Modelo130Data(
             nif=declarant["nif"],
-            name=declarant["name"],
+            apellidos=declarant.get("apellidos", declarant.get("name", "")),
+            nombre=declarant.get("nombre", ""),
             exercise=year,
             period=quarter,
-            rendimiento_neto_acumulado=Decimal(
-                click.prompt("Rendimiento neto acumulado", default="0")
-            ),
+            ingresos=Decimal(click.prompt("Ingresos computables (acumulado)", default="0")),
+            gastos=Decimal(click.prompt("Gastos deducibles (acumulado)", default="0")),
             pagos_anteriores=Decimal(prev_payments),
             retenciones=Decimal(click.prompt("Retenciones soportadas", default="0")),
             cuenta_iban=config.get("iban", ""),
         )
-
-    # Declaration type
-    data.tipo_declaracion = "I" if data.resultado > 0 else "N"
 
     boe = generate_130_boe(data)
 
@@ -269,10 +269,12 @@ def generate_130(
         click.echo(boe)
 
     click.echo(f"\n--- Summary ---")
-    click.echo(f"Rend. neto acum.:   {data.rendimiento_neto_acumulado:>10.2f} €")
-    click.echo(f"20% pago frac.:     {data.pago_fraccionado_bruto:>10.2f} €")
-    click.echo(f"Pagos anteriores:   {data.pagos_anteriores:>10.2f} €")
-    click.echo(f"Resultado (19):     {data.resultado:>10.2f} €")
+    click.echo(f"Ingresos acum.:     {data.ingresos:>10.2f} €")
+    click.echo(f"Gastos acum.:       {data.gastos:>10.2f} €")
+    click.echo(f"Rend. neto [03]:    {data.rendimiento_neto:>10.2f} €")
+    click.echo(f"20% pago [04]:      {data.pago_20_pct:>10.2f} €")
+    click.echo(f"Pagos ant. [05]:    {data.pagos_anteriores:>10.2f} €")
+    click.echo(f"Resultado [19]:     {data.resultado:>10.2f} €")
     click.echo(f"Tipo declaración:   {data.tipo_declaracion}")
 
 
