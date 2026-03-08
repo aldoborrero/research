@@ -4,7 +4,7 @@ from decimal import Decimal
 
 import pytest
 
-from aeat_autonomo.modelo130 import (
+from aeat_autonomo.modelos.modelo130 import (
     Modelo130Data,
     _an,
     _cents,

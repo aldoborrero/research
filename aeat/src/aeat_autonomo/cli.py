@@ -22,8 +22,7 @@ import click
 from .boe import encode_boe
 from .config import AeatConfig
 from .logging import setup_logging
-from .modelo130 import Modelo130Data, generate_130_boe
-from .modelo303 import Modelo303Data, generate_303_boe
+from .modelos import Modelo130Data, Modelo303Data, generate_130_boe, generate_303_boe
 from .quipu import QuipuClient
 
 if TYPE_CHECKING:
