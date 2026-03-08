@@ -20,11 +20,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from decimal import Decimal, ROUND_HALF_UP
 
-from ..boe import an as _an
-from ..boe import cents as _cents
-from ..boe import num as _num
-from ..boe import signed as _signed
-from ..boe import validate_iban, validate_nif
+from .boe import an as _an
+from .boe import cents as _cents
+from .boe import num as _num
+from .boe import signed as _signed
+from .boe import validate_iban, validate_nif
 
 
 @dataclass
