@@ -83,6 +83,35 @@ class AuthNotifier extends StateNotifier<AuthState> {
     }
   }
 
+  /// Authenticate via DNI/NIE and transition to authenticated state.
+  Future<LlaveApiResult> dniAuthenticate(
+      String nif, String fecha, String soporte) async {
+    _log.info('authenticating via DNI/NIE');
+    state = const AuthLoading();
+    try {
+      final result = await _bridge.dniAuthenticate(nif, fecha, soporte);
+      if (result.ok) {
+        // Re-check session status — the backend should have established one.
+        checkSession();
+        // If the backend didn't establish a full session (e.g. DNI-only flow),
+        // persist whatever state exists.
+        final json = _bridge.exportSession();
+        if (json != null) {
+          await SecureSessionStore.write(json);
+        }
+        _log.info('DNI/NIE authentication successful');
+      } else {
+        _log.warning('DNI/NIE authentication failed: ${result.error}');
+        state = AuthError(result.error ?? 'DNI/NIE authentication failed');
+      }
+      return result;
+    } catch (e) {
+      _log.severe('DNI/NIE authentication error: $e');
+      state = AuthError(e.toString());
+      rethrow;
+    }
+  }
+
   /// Log out and clear session.
   Future<void> logout() async {
     _log.info('logging out');

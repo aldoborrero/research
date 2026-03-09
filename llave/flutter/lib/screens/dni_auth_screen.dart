@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-import '../src/llave_bridge.dart';
+import '../src/auth_provider.dart';
 
 class DniAuthScreen extends ConsumerStatefulWidget {
   const DniAuthScreen({super.key});
@@ -38,8 +38,8 @@ class _DniAuthScreenState extends ConsumerState<DniAuthScreen> {
     });
 
     try {
-      final bridge = ref.read(llaveBridgeProvider);
-      final result = await bridge.dniAuthenticate(
+      final authNotifier = ref.read(authProvider.notifier);
+      final result = await authNotifier.dniAuthenticate(
         _nifController.text.trim(),
         _fechaController.text.trim(),
         _soporteController.text.trim(),

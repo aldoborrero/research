@@ -232,6 +232,14 @@ class MockLlaveBridge implements LlaveBridge {
   @override
   Future<LlaveApiResult> dniAuthenticate(String nif, String fecha, String soporte) async {
     await Future<void>.delayed(const Duration(milliseconds: 800));
+
+    final validated = validateNif(nif);
+    _session = LlaveSession(
+      deviceId: 'mock-dni-${DateTime.now().millisecondsSinceEpoch}',
+      nif: validated,
+      createdAt: DateTime.now().toIso8601String(),
+    );
+
     return const LlaveApiResult(
       ok: true,
       data: '<html><body>Mock DNI authentication successful</body></html>',
