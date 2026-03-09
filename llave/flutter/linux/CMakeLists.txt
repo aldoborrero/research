@@ -74,6 +74,31 @@ set_target_properties(${BINARY_NAME}
 # them to the application.
 include(flutter/generated_plugins.cmake)
 
+# --- Rust FFI library (llave-core-ffi) ---
+set(LLAVE_CRATE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../crates/llave-core-ffi")
+
+# Map Flutter build type to Cargo profile.
+if(CMAKE_BUILD_TYPE MATCHES "Debug")
+  set(CARGO_PROFILE "debug")
+  set(CARGO_PROFILE_FLAG "")
+else()
+  set(CARGO_PROFILE "release")
+  set(CARGO_PROFILE_FLAG "--release")
+endif()
+
+set(LLAVE_FFI_LIB "${LLAVE_CRATE_DIR}/../../target/${CARGO_PROFILE}/libllave_core_ffi.so")
+
+add_custom_target(llave_core_ffi ALL
+  COMMAND cargo build -p llave-core-ffi ${CARGO_PROFILE_FLAG}
+  WORKING_DIRECTORY "${LLAVE_CRATE_DIR}/../.."
+  BYPRODUCTS "${LLAVE_FFI_LIB}"
+  COMMENT "Building llave-core-ffi Rust library"
+)
+add_dependencies(${BINARY_NAME} llave_core_ffi)
+
+# Bundle the .so so it ends up next to the Flutter engine in lib/.
+list(APPEND PLUGIN_BUNDLED_LIBRARIES "${LLAVE_FFI_LIB}")
+
 
 # === Installation ===
 # By default, "installing" just makes a relocatable bundle in the build
