@@ -55,14 +55,10 @@ pub struct FfiNifCheckResult {
 
 /// Initialise the Rust core storage backend.
 ///
-/// On **Linux desktop** the Rust core uses [`KeyringStorage`] backed by
-/// the kernel keyutils subsystem (`linux-native` feature).  No daemon is
-/// required, but credentials do **not** persist across reboots — the user
-/// must re-activate after logging out or restarting.
-///
-/// On **mobile** (Android/iOS) the core uses [`MemoryStorage`]; Flutter is
-/// responsible for persisting via `flutter_secure_storage` and passing the
-/// saved JSON here on startup.
+/// The FFI layer always uses [`MemoryStorage`]; Flutter is responsible for
+/// persisting via `flutter_secure_storage` and passing the saved JSON here
+/// on startup.  (The CLI uses [`KeyringStorage`] directly — see
+/// `llave-cli/src/main.rs`.)
 #[frb]
 pub fn init_core(session_json: Option<String>) -> Result<bool, String> {
     // Initialise logfmt tracing for Rust core (only once; ignore if already set).
@@ -74,16 +70,14 @@ pub fn init_core(session_json: Option<String>) -> Result<bool, String> {
         )
         .try_init();
 
-    if cfg!(target_os = "linux") {
-        tracing::info!(backend = "keyring", "init storage");
-        llave_core::init_storage(Box::new(llave_core::KeyringStorage::new()));
-    } else {
-        tracing::info!(backend = "memory", "init storage");
-        llave_core::init_storage(Box::new(llave_core::MemoryStorage::new()));
-        if let Some(json) = session_json {
-            llave_core::Session::set_session_data(&json).map_err(|e| e.to_string())?;
-            tracing::debug!("session hydrated from flutter");
-        }
+    // FFI is always called from Flutter, which manages persistence via
+    // flutter_secure_storage.  Use MemoryStorage on all platforms — the
+    // KeyringStorage backend is reserved for the standalone CLI.
+    tracing::info!(backend = "memory", "init storage");
+    llave_core::init_storage(Box::new(llave_core::MemoryStorage::new()));
+    if let Some(json) = session_json {
+        llave_core::Session::set_session_data(&json).map_err(|e| e.to_string())?;
+        tracing::debug!("session hydrated from flutter");
     }
     Ok(true)
 }
