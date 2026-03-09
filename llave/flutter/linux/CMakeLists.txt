@@ -14,7 +14,13 @@ set(APPLICATION_ID "es.aeat.llave")
 cmake_policy(SET CMP0063 NEW)
 
 # Load bundled libraries from the lib/ directory relative to the binary.
+# Use --disable-new-dtags so the linker emits DT_RPATH instead of DT_RUNPATH.
+# DT_RPATH is inherited by dlopen() calls from loaded shared libraries (e.g. the
+# Dart VM inside libflutter_linux_gtk.so), which is required for
+# flutter_rust_bridge's DynamicLibrary.open() to find libllave_core_ffi.so.
 set(CMAKE_INSTALL_RPATH "$ORIGIN/lib")
+set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -Wl,--disable-new-dtags")
+set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,--disable-new-dtags")
 
 # Root filesystem for cross-building.
 if(FLUTTER_TARGET_PLATFORM_SYSROOT)
