@@ -9,6 +9,7 @@ import 'screens/pending_screen.dart';
 import 'screens/history_screen.dart';
 import 'screens/settings_screen.dart';
 import 'screens/splash_screen.dart';
+import 'screens/dev_screen.dart';
 import 'src/auth_provider.dart';
 import 'src/theme_provider.dart';
 
@@ -60,6 +61,8 @@ GoRouter _buildRouter(WidgetRef ref) {
           GoRoute(path: '/history', builder: (_, __) => const HistoryScreen()),
           GoRoute(
               path: '/settings', builder: (_, __) => const SettingsScreen()),
+          if (DevScreen.isEnabled)
+            GoRoute(path: '/dev', builder: (_, __) => const DevScreen()),
         ],
       ),
     ],

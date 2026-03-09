@@ -1,7 +1,10 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../src/auth_provider.dart';
+import '../src/llave_bridge.dart';
 import '../src/theme_provider.dart';
 
 class SettingsScreen extends ConsumerWidget {
@@ -96,6 +99,26 @@ class SettingsScreen extends ConsumerWidget {
             title: Text('Powered by'),
             subtitle: Text('Rust core (llave-core) via flutter_rust_bridge'),
           ),
+          if (kDebugMode || kProfileMode) ...[
+            const Divider(),
+            _SectionHeader('Developer'),
+            ListTile(
+              leading: Icon(
+                Icons.science,
+                color: ref.watch(llaveBridgeProvider) is MockLlaveBridge
+                    ? Colors.orange
+                    : Colors.green,
+              ),
+              title: const Text('Developer Tools'),
+              subtitle: Text(
+                ref.watch(llaveBridgeProvider) is MockLlaveBridge
+                    ? 'Mock bridge active'
+                    : 'Real bridge active',
+              ),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => context.go('/dev'),
+            ),
+          ],
         ],
       ),
     );
