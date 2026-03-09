@@ -53,10 +53,10 @@ pub struct FfiNifCheckResult {
 
 /// Initialise the Rust core storage backend.
 ///
-/// On **Linux desktop** the Rust core uses [`KeyringStorage`] which persists
-/// the session in the OS secret store (GNOME Keyring / KDE Wallet / etc.)
-/// directly — Flutter does not need to handle persistence.  If the keyring
-/// is unavailable, initialisation fails with a descriptive error.
+/// On **Linux desktop** the Rust core uses [`KeyringStorage`] backed by
+/// the kernel keyutils subsystem (`linux-native` feature).  No daemon is
+/// required, but credentials do **not** persist across reboots — the user
+/// must re-activate after logging out or restarting.
 ///
 /// On **mobile** (Android/iOS) the core uses [`MemoryStorage`]; Flutter is
 /// responsible for persisting via `flutter_secure_storage` and passing the
@@ -64,33 +64,8 @@ pub struct FfiNifCheckResult {
 #[frb]
 pub fn init_core(session_json: Option<String>) -> Result<bool, String> {
     if cfg!(target_os = "linux") {
-        // Desktop Linux: Rust owns persistence via the OS keyring.
-        // Verify the keyring is accessible before proceeding.
-        let storage = llave_core::KeyringStorage::new();
-        // Probe the keyring with a test read — if it fails, the keyring
-        // daemon isn't running or the keyring is locked.
-        use llave_core::storage::SecureStorage;
-        match storage.load() {
-            Ok(_) | Err(llave_core::error::LlaveError::NoSession) => {}
-            Err(llave_core::error::LlaveError::Keyring(ref msg))
-                if msg.contains("No matching entry")
-                    || msg.contains("no result")
-                    || msg.contains("not found") => {}
-            Err(e) => {
-                return Err(format!(
-                    "OS keyring is unavailable: {e}\n\n\
-                    Llave requires a running secret service (GNOME Keyring, KDE Wallet, etc.) \
-                    to securely store your session credentials.\n\n\
-                    To fix this:\n\
-                    • GNOME/GTK: install and start gnome-keyring-daemon\n\
-                    • KDE: ensure KWallet is running\n\
-                    • Headless/minimal: run `dbus-run-session -- bash` then \
-                      `echo \"\" | gnome-keyring-daemon --unlock`\n\
-                    • NixOS: enable `services.gnome.gnome-keyring.enable = true;`"
-                ));
-            }
-        }
-        llave_core::init_storage(Box::new(storage));
+        // Desktop Linux: kernel keyutils — works without a daemon.
+        llave_core::init_storage(Box::new(llave_core::KeyringStorage::new()));
     } else {
         // Mobile: in-memory storage, Flutter handles persistence.
         llave_core::init_storage(Box::new(llave_core::MemoryStorage::new()));
