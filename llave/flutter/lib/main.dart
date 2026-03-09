@@ -3,11 +3,11 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 import 'package:logging/logging.dart';
-import 'src/rust/frb_generated.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+
+import 'src/rust/api/api.dart' as native_ffi;
 
 import 'screens/home_screen.dart';
 import 'screens/activate_screen.dart';
@@ -41,10 +41,7 @@ Future<void> main() async {
   // Resolve the library path relative to the executable so dlopen can find it
   // regardless of RPATH/RUNPATH configuration.
   final exeDir = File(Platform.resolvedExecutable).parent.path;
-  await RustLib.init(
-    externalLibrary:
-        ExternalLibrary.open('$exeDir/lib/libllave_core_ffi.so'),
-  );
+  native_ffi.nativeLibPath = '$exeDir/lib/libllave_core_ffi.so';
   runApp(const ProviderScope(child: LlaveApp()));
 }
 
