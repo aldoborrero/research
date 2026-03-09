@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../src/rust/api/api.dart' as native_ffi;
+
 class PinScreen extends StatefulWidget {
   const PinScreen({super.key});
 
@@ -21,13 +23,10 @@ class _PinScreenState extends State<PinScreen> {
     });
 
     try {
-      // TODO: Call Rust bridge:
-      // final result = await requestPin();
-      // _pin = result.pin;
-      // _ttl = result.timeToLiveSeconds;
+      final result = await native_ffi.requestPin();
       setState(() {
-        _pin = '------'; // placeholder
-        _ttl = '180';
+        _pin = result.pin;
+        _ttl = result.timeToLiveSeconds;
       });
     } catch (e) {
       setState(() => _error = e.toString());
