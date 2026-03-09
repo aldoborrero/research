@@ -158,7 +158,7 @@ class _DevScreenState extends ConsumerState<DevScreen> {
                     }),
           ),
           _ActionTile(
-            icon: Icons.validate,
+            icon: Icons.verified,
             title: 'Validate NIF',
             subtitle: 'Test NIF validation with 12345678Z',
             loading: _loading,
