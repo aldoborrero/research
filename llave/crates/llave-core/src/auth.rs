@@ -33,7 +33,7 @@ pub async fn activate_device(
     device_id: &str,
     device_password: &str,
 ) -> Result<Session> {
-    tracing::info!("Initializing session with Llave backend...");
+    tracing::info!("activating device");
     let starting = client.starting(device_id, nif, "").await?;
     if starting.status != "OK" {
         return Err(crate::error::LlaveError::Api {
@@ -42,13 +42,10 @@ pub async fn activate_device(
             message: starting.mensaje.unwrap_or_else(|| "Starting failed".into()),
         });
     }
-    tracing::info!("Session initialized successfully");
 
-    tracing::info!("Checking NIF activation status...");
     let activated = client.is_nif_activated(device_id, nif).await?;
-    tracing::info!("NIF check status: {}", activated.status);
+    tracing::debug!(nif_status = %activated.status, "nif check");
 
-    tracing::info!("Activating device authentication...");
     let _activate = client.activate_authentication(device_password, "").await?;
 
     let session = Session {
@@ -60,13 +57,14 @@ pub async fn activate_device(
     };
 
     session.save()?;
-    tracing::info!("Device activated and session saved");
+    tracing::info!("device activated");
 
     Ok(session)
 }
 
 /// Request a Llave PIN using saved session credentials.
 pub async fn request_pin(client: &LlaveClient, session: &Session) -> Result<(String, String)> {
+    tracing::info!("requesting pin");
     let _starting = client
         .starting(&session.device_id, &session.nif, "")
         .await?;
@@ -78,6 +76,7 @@ pub async fn request_pin(client: &LlaveClient, session: &Session) -> Result<(Str
     let pin_data = resp.into_result()?;
     let pin = pin_data.pin.unwrap_or_default();
     let ttl = pin_data.time_to_live.unwrap_or_default();
+    tracing::info!(ttl = %ttl, "pin generated");
 
     Ok((pin, ttl))
 }
@@ -140,6 +139,7 @@ pub async fn confirm_authentication(
     token_clave_movil: &str,
     codigo_idp: &str,
 ) -> Result<serde_json::Value> {
+    tracing::info!("confirming auth request");
     let _starting = client
         .starting(&session.device_id, &session.nif, "")
         .await?;
@@ -167,6 +167,7 @@ pub async fn reject_authentication(
     token_clave_movil: &str,
     codigo_idp: &str,
 ) -> Result<serde_json::Value> {
+    tracing::info!("rejecting auth request");
     let _starting = client
         .starting(&session.device_id, &session.nif, "")
         .await?;
@@ -194,7 +195,7 @@ pub async fn listen_for_requests(
     max_attempts: u32,
 ) -> Result<serde_json::Value> {
     for attempt in 1..=max_attempts {
-        tracing::debug!("Polling attempt {attempt}/{max_attempts}...");
+        tracing::debug!(attempt = attempt, max = max_attempts, "polling");
 
         let result = poll_pending_requests(client, session).await?;
 
@@ -232,11 +233,13 @@ pub async fn run_listener(
     shutdown: CancellationToken,
     tx: broadcast::Sender<AuthEvent>,
 ) {
+    tracing::info!("listener started");
     let _ = tx.send(AuthEvent::ListenerStarted);
 
     loop {
         tokio::select! {
             _ = shutdown.cancelled() => {
+                tracing::info!("listener stopped");
                 let _ = tx.send(AuthEvent::ListenerStopped);
                 break;
             }
@@ -265,6 +268,7 @@ pub async fn run_listener(
                         }
                     }
                     Err(e) => {
+                        tracing::warn!(err = %e, "poll error");
                         let _ = tx.send(AuthEvent::PollError {
                             message: e.to_string(),
                         });

@@ -1,7 +1,10 @@
+import 'dart:developer' as developer;
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
+import 'package:logging/logging.dart';
 import 'src/rust/frb_generated.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -20,6 +23,20 @@ import 'src/auth_provider.dart';
 import 'src/theme_provider.dart';
 
 Future<void> main() async {
+  // Set up logging — forward all records to developer log (visible in
+  // `flutter logs` / DevTools console).  In release mode only warnings+.
+  Logger.root.level = kDebugMode ? Level.ALL : Level.WARNING;
+  Logger.root.onRecord.listen((record) {
+    developer.log(
+      record.message,
+      time: record.time,
+      level: record.level.value,
+      name: record.loggerName,
+      error: record.error,
+      stackTrace: record.stackTrace,
+    );
+  });
+
   WidgetsFlutterBinding.ensureInitialized();
   // Resolve the library path relative to the executable so dlopen can find it
   // regardless of RPATH/RUNPATH configuration.

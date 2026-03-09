@@ -1,5 +1,7 @@
 use clap::{Parser, Subcommand};
 use serde_json::json;
+use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::util::SubscriberInitExt;
 
 use llave_core::config::validate_nif;
 use llave_core::error::{LlaveError, Result};
@@ -161,15 +163,18 @@ fn output_error(cli: &Cli, err: &LlaveError) {
 async fn main() {
     let cli = Cli::parse();
 
-    if cli.verbose {
-        tracing_subscriber::fmt()
-            .with_env_filter("llave=debug,llave_core=debug,info")
-            .init();
+    let filter = if cli.verbose {
+        "llave=debug,llave_core=debug,info"
     } else {
-        tracing_subscriber::fmt()
-            .with_env_filter("llave=warn,llave_core=warn")
-            .init();
-    }
+        "llave=info,llave_core=info,warn"
+    };
+    tracing_subscriber::Registry::default()
+        .with(tracing_logfmt::layer())
+        .with(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| filter.parse().unwrap()),
+        )
+        .init();
 
     init_storage(Box::new(KeyringStorage::new()));
 

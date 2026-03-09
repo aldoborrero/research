@@ -31,10 +31,13 @@ impl<T> ApiResponse<T> {
                     message: "Empty response payload".into(),
                 })
         } else {
+            let code = self.codigo_error.unwrap_or_default();
+            let message = self.mensaje.unwrap_or_else(|| "Unknown error".into());
+            tracing::error!(status = %self.status, code = %code, msg = %message, "api error");
             Err(LlaveError::Api {
                 status: self.status,
-                code: self.codigo_error.unwrap_or_default(),
-                message: self.mensaje.unwrap_or_else(|| "Unknown error".into()),
+                code,
+                message,
             })
         }
     }
@@ -107,8 +110,28 @@ impl LlaveClient {
             .build()?;
 
         let trace_id = uuid::Uuid::new_v4().to_string();
+        tracing::debug!(trace_id = %trace_id, "client created");
 
         Ok(Self { client, trace_id })
+    }
+
+    async fn post_form<T: serde::de::DeserializeOwned>(
+        &self,
+        endpoint: &str,
+        url: &str,
+        form: &[(&str, &str)],
+    ) -> Result<ApiResponse<T>> {
+        tracing::debug!(endpoint = endpoint, "aeat request");
+        let resp = self
+            .client
+            .post(url)
+            .header("TrazasApp", &self.trace_id)
+            .form(form)
+            .send()
+            .await?;
+        let status = resp.status();
+        tracing::debug!(endpoint = endpoint, http_status = %status, "aeat response");
+        Ok(resp.json().await?)
     }
 
     /// Initialize a session with the Llave backend.
@@ -119,11 +142,7 @@ impl LlaveClient {
         token_push: &str,
     ) -> Result<ApiResponse<StartingResponse>> {
         let url = format!("{BASE_URL}/wlpl/MOVI-P24H/LlaveStartingSv");
-        let resp = self
-            .client
-            .post(&url)
-            .header("TrazasApp", &self.trace_id)
-            .form(&[
+        self.post_form("starting", &url, &[
                 ("device_id", device_id),
                 ("NIF", nif),
                 ("sistema_operativo", OS_NAME),
@@ -131,11 +150,7 @@ impl LlaveClient {
                 ("version_os", OS_VERSION),
                 ("version_app", APP_VERSION),
                 ("modelo", DEVICE_MODEL),
-            ])
-            .send()
-            .await?;
-
-        Ok(resp.json().await?)
+            ]).await
     }
 
     /// Check if a NIF is activated in Llave.
@@ -145,21 +160,13 @@ impl LlaveClient {
         nif: &str,
     ) -> Result<ApiResponse<IsNifActivatedResponse>> {
         let url = format!("{BASE_URL}/wlpl/MOVI-P24H/LlaveIsNifActivatedSv");
-        let resp = self
-            .client
-            .post(&url)
-            .header("TrazasApp", &self.trace_id)
-            .form(&[
-                ("device_id", device_id),
-                ("NIF", nif),
-                ("sistema_operativo", OS_NAME),
-                ("version_os", OS_VERSION),
-                ("version_app", APP_VERSION),
-            ])
-            .send()
-            .await?;
-
-        Ok(resp.json().await?)
+        self.post_form("is_nif_activated", &url, &[
+            ("device_id", device_id),
+            ("NIF", nif),
+            ("sistema_operativo", OS_NAME),
+            ("version_os", OS_VERSION),
+            ("version_app", APP_VERSION),
+        ]).await
     }
 
     /// Request a Llave PIN.
@@ -170,22 +177,14 @@ impl LlaveClient {
         nif: &str,
     ) -> Result<ApiResponse<RequestPinResponse>> {
         let url = format!("{BASE_URL}/wlpl/MOVI-P24H/LlaveRequestPinSv");
-        let resp = self
-            .client
-            .post(&url)
-            .header("TrazasApp", &self.trace_id)
-            .form(&[
-                ("device_id", device_id),
-                ("user_password", device_password),
-                ("NIF", nif),
-                ("sistema_operativo", OS_NAME),
-                ("version_os", OS_VERSION),
-                ("version_app", APP_VERSION),
-            ])
-            .send()
-            .await?;
-
-        Ok(resp.json().await?)
+        self.post_form("request_pin", &url, &[
+            ("device_id", device_id),
+            ("user_password", device_password),
+            ("NIF", nif),
+            ("sistema_operativo", OS_NAME),
+            ("version_os", OS_VERSION),
+            ("version_app", APP_VERSION),
+        ]).await
     }
 
     /// Confirm a Llave Móvil authentication request.
@@ -198,24 +197,16 @@ impl LlaveClient {
         codigo_idp: &str,
     ) -> Result<ApiResponse<AuthenticateResponse>> {
         let url = format!("{BASE_URL}/wlpl/MOVI-P24H/LlaveAuthenticateSv");
-        let resp = self
-            .client
-            .post(&url)
-            .header("TrazasApp", &self.trace_id)
-            .form(&[
-                ("device_id", device_id),
-                ("user_password", device_password),
-                ("NIF", nif),
-                ("sistema_operativo", OS_NAME),
-                ("version_os", OS_VERSION),
-                ("version_app", APP_VERSION),
-                ("tokenClaveMovil", token_clave_movil),
-                ("codigoIdP", codigo_idp),
-            ])
-            .send()
-            .await?;
-
-        Ok(resp.json().await?)
+        self.post_form("authenticate", &url, &[
+            ("device_id", device_id),
+            ("user_password", device_password),
+            ("NIF", nif),
+            ("sistema_operativo", OS_NAME),
+            ("version_os", OS_VERSION),
+            ("version_app", APP_VERSION),
+            ("tokenClaveMovil", token_clave_movil),
+            ("codigoIdP", codigo_idp),
+        ]).await
     }
 
     /// Cancel a pending Llave Móvil authentication.
@@ -227,23 +218,15 @@ impl LlaveClient {
         codigo_idp: &str,
     ) -> Result<ApiResponse<serde_json::Value>> {
         let url = format!("{BASE_URL}/wlpl/MOVI-P24H/LlaveCancelAuthenticateSv");
-        let resp = self
-            .client
-            .post(&url)
-            .header("TrazasApp", &self.trace_id)
-            .form(&[
-                ("device_id", device_id),
-                ("NIF", nif),
-                ("sistema_operativo", OS_NAME),
-                ("version_os", OS_VERSION),
-                ("version_app", APP_VERSION),
-                ("tokenClaveMovil", token_clave_movil),
-                ("codigoIdP", codigo_idp),
-            ])
-            .send()
-            .await?;
-
-        Ok(resp.json().await?)
+        self.post_form("cancel_authenticate", &url, &[
+            ("device_id", device_id),
+            ("NIF", nif),
+            ("sistema_operativo", OS_NAME),
+            ("version_os", OS_VERSION),
+            ("version_app", APP_VERSION),
+            ("tokenClaveMovil", token_clave_movil),
+            ("codigoIdP", codigo_idp),
+        ]).await
     }
 
     /// Check user account data.
@@ -253,21 +236,13 @@ impl LlaveClient {
         nif: &str,
     ) -> Result<ApiResponse<CheckMyDataResponse>> {
         let url = format!("{BASE_URL}/wlpl/MOVI-P24H/LlaveCheckMyDataSv");
-        let resp = self
-            .client
-            .post(&url)
-            .header("TrazasApp", &self.trace_id)
-            .form(&[
-                ("device_id", device_id),
-                ("NIF", nif),
-                ("sistema_operativo", OS_NAME),
-                ("version_os", OS_VERSION),
-                ("version_app", APP_VERSION),
-            ])
-            .send()
-            .await?;
-
-        Ok(resp.json().await?)
+        self.post_form("check_my_data", &url, &[
+            ("device_id", device_id),
+            ("NIF", nif),
+            ("sistema_operativo", OS_NAME),
+            ("version_os", OS_VERSION),
+            ("version_app", APP_VERSION),
+        ]).await
     }
 
     /// Activate device authentication.
@@ -277,22 +252,14 @@ impl LlaveClient {
         token_push: &str,
     ) -> Result<ApiResponse<ActivateResponse>> {
         let url = format!("{BASE_URL_WWW12}/wlpl/MOVI-P24H/LlaveActivateAuthenticationSv");
-        let resp = self
-            .client
-            .post(&url)
-            .header("TrazasApp", &self.trace_id)
-            .form(&[
-                ("sistema_operativo", OS_NAME),
-                ("version_os", OS_VERSION),
-                ("version_app", APP_VERSION),
-                ("token_push", token_push),
-                ("user_password", device_password),
-                ("modelo", DEVICE_MODEL),
-            ])
-            .send()
-            .await?;
-
-        Ok(resp.json().await?)
+        self.post_form("activate_authentication", &url, &[
+            ("sistema_operativo", OS_NAME),
+            ("version_os", OS_VERSION),
+            ("version_app", APP_VERSION),
+            ("token_push", token_push),
+            ("user_password", device_password),
+            ("modelo", DEVICE_MODEL),
+        ]).await
     }
 
     /// Deactivate device authentication.
@@ -302,21 +269,13 @@ impl LlaveClient {
         nif: &str,
     ) -> Result<ApiResponse<serde_json::Value>> {
         let url = format!("{BASE_URL}/wlpl/MOVI-P24H/LlaveDesactivateAuthSv");
-        let resp = self
-            .client
-            .post(&url)
-            .header("TrazasApp", &self.trace_id)
-            .form(&[
-                ("device_id", device_id),
-                ("NIF", nif),
-                ("sistema_operativo", OS_NAME),
-                ("version_os", OS_VERSION),
-                ("version_app", APP_VERSION),
-            ])
-            .send()
-            .await?;
-
-        Ok(resp.json().await?)
+        self.post_form("deactivate_authentication", &url, &[
+            ("device_id", device_id),
+            ("NIF", nif),
+            ("sistema_operativo", OS_NAME),
+            ("version_os", OS_VERSION),
+            ("version_app", APP_VERSION),
+        ]).await
     }
 
     /// Authenticate with DNI/NIE + date of birth (weak auth).
@@ -329,6 +288,7 @@ impl LlaveClient {
         let url = format!(
             "{BASE_URL}/wlpl/BUCV-JDIT/AutenticaDniNieContrasteh?ref=%2Fwlpl%2FMOVI-AEAT%2FAccesoW12Sv"
         );
+        tracing::debug!(endpoint = "authenticate_dni_nie", "aeat request");
         let resp = self
             .client
             .post(&url)
@@ -346,6 +306,8 @@ impl LlaveClient {
             .send()
             .await?;
 
+        let status = resp.status();
+        tracing::debug!(endpoint = "authenticate_dni_nie", http_status = %status, "aeat response");
         Ok(resp.text().await?)
     }
 
@@ -357,22 +319,14 @@ impl LlaveClient {
         timestamp: &str,
     ) -> Result<ApiResponse<serde_json::Value>> {
         let url = format!("{BASE_URL}/wlpl/MOVI-P24H/LlaveRequestAllOperationsSv");
-        let resp = self
-            .client
-            .post(&url)
-            .header("TrazasApp", &self.trace_id)
-            .form(&[
-                ("device_id", device_id),
-                ("NIF", nif),
-                ("timestamp", timestamp),
-                ("sistema_operativo", OS_NAME),
-                ("version_os", OS_VERSION),
-                ("version_app", APP_VERSION),
-            ])
-            .send()
-            .await?;
-
-        Ok(resp.json().await?)
+        self.post_form("request_all_operations", &url, &[
+            ("device_id", device_id),
+            ("NIF", nif),
+            ("timestamp", timestamp),
+            ("sistema_operativo", OS_NAME),
+            ("version_os", OS_VERSION),
+            ("version_app", APP_VERSION),
+        ]).await
     }
 
     /// Query operations history.
@@ -383,35 +337,30 @@ impl LlaveClient {
         nif: &str,
     ) -> Result<ApiResponse<OperationsHistoryResponse>> {
         let url = format!("{BASE_URL}/wlpl/MOVI-P24H/LlaveOperationsHistorySv");
-        let resp = self
-            .client
-            .post(&url)
-            .header("TrazasApp", &self.trace_id)
-            .form(&[
-                ("device_id", device_id),
-                ("user_password", device_password),
-                ("NIF", nif),
-                ("sistema_operativo", OS_NAME),
-                ("version_os", OS_VERSION),
-                ("version_app", APP_VERSION),
-                ("aut_fir", ""),
-                ("resultado", ""),
-                ("organismo", ""),
-                ("fecha_desde", ""),
-                ("fecha_hasta", ""),
-                ("tipo", ""),
-                ("orden", ""),
-            ])
-            .send()
-            .await?;
-
-        Ok(resp.json().await?)
+        self.post_form("operations_history", &url, &[
+            ("device_id", device_id),
+            ("user_password", device_password),
+            ("NIF", nif),
+            ("sistema_operativo", OS_NAME),
+            ("version_os", OS_VERSION),
+            ("version_app", APP_VERSION),
+            ("aut_fir", ""),
+            ("resultado", ""),
+            ("organismo", ""),
+            ("fecha_desde", ""),
+            ("fecha_hasta", ""),
+            ("tipo", ""),
+            ("orden", ""),
+        ]).await
     }
 
     /// Get Llave Móvil activation page.
     pub async fn get_llave_movil(&self) -> Result<ApiResponse<serde_json::Value>> {
         let url = format!("{BASE_URL_WWW12}/wlpl/MOVI-P24H/ObtenerClaveMovil");
+        tracing::debug!(endpoint = "get_llave_movil", "aeat request");
         let resp = self.client.get(&url).send().await?;
+        let status = resp.status();
+        tracing::debug!(endpoint = "get_llave_movil", http_status = %status, "aeat response");
         Ok(resp.json().await?)
     }
 
@@ -421,28 +370,15 @@ impl LlaveClient {
         token: &str,
     ) -> Result<ApiResponse<serde_json::Value>> {
         let url = format!("{BASE_URL_WWW12}/wlpl/MOVI-P24H/ValidarClaveMovil");
-        let resp = self
-            .client
-            .post(&url)
-            .header("TrazasApp", &self.trace_id)
-            .form(&[("tokenClaveMovil", token)])
-            .send()
-            .await?;
-
-        Ok(resp.json().await?)
+        self.post_form("validate_llave_movil", &url, &[
+            ("tokenClaveMovil", token),
+        ]).await
     }
 
     /// Request SMS verification code for device activation.
     pub async fn request_sms_code(&self) -> Result<ApiResponse<serde_json::Value>> {
         let url = format!("{BASE_URL_WWW12}/wlpl/MOVI-P24H/ObtenerClaveMovilSMS");
-        let resp = self
-            .client
-            .post(&url)
-            .header("TrazasApp", &self.trace_id)
-            .send()
-            .await?;
-
-        Ok(resp.json().await?)
+        self.post_form("request_sms_code", &url, &[]).await
     }
 
     /// Validate SMS verification code.
@@ -453,19 +389,11 @@ impl LlaveClient {
         pin: &str,
     ) -> Result<ApiResponse<serde_json::Value>> {
         let url = format!("{BASE_URL_WWW12}/wlpl/MOVI-P24H/ValidarClaveMovilSMS");
-        let resp = self
-            .client
-            .post(&url)
-            .header("TrazasApp", &self.trace_id)
-            .form(&[
-                ("timeStampAltaSms", timestamp),
-                ("tokenClaveMovilSms", token),
-                ("pinAcceso", pin),
-            ])
-            .send()
-            .await?;
-
-        Ok(resp.json().await?)
+        self.post_form("validate_sms_code", &url, &[
+            ("timeStampAltaSms", timestamp),
+            ("tokenClaveMovilSms", token),
+            ("pinAcceso", pin),
+        ]).await
     }
 
     /// Register a push notification token with the server.
@@ -476,22 +404,14 @@ impl LlaveClient {
         token_push: &str,
     ) -> Result<ApiResponse<serde_json::Value>> {
         let url = format!("{BASE_URL}/wlpl/MOVI-P24H/LlaveSetFirebaseTokenSv");
-        let resp = self
-            .client
-            .post(&url)
-            .header("TrazasApp", &self.trace_id)
-            .form(&[
-                ("device_id", device_id),
-                ("NIF", nif),
-                ("sistema_operativo", OS_NAME),
-                ("version_os", OS_VERSION),
-                ("version_app", APP_VERSION),
-                ("token_push", token_push),
-            ])
-            .send()
-            .await?;
-
-        Ok(resp.json().await?)
+        self.post_form("set_firebase_token", &url, &[
+            ("device_id", device_id),
+            ("NIF", nif),
+            ("sistema_operativo", OS_NAME),
+            ("version_os", OS_VERSION),
+            ("version_app", APP_VERSION),
+            ("token_push", token_push),
+        ]).await
     }
 
     /// Check current request state (pending authentication requests).
@@ -502,22 +422,14 @@ impl LlaveClient {
         nif: &str,
     ) -> Result<ApiResponse<serde_json::Value>> {
         let url = format!("{BASE_URL_WWW12}/wlpl/MOVI-P24H/LlaveRequestStateSv");
-        let resp = self
-            .client
-            .post(&url)
-            .header("TrazasApp", &self.trace_id)
-            .form(&[
-                ("device_id", device_id),
-                ("user_password", device_password),
-                ("NIF", nif),
-                ("sistema_operativo", OS_NAME),
-                ("version_os", OS_VERSION),
-                ("version_app", APP_VERSION),
-            ])
-            .send()
-            .await?;
-
-        Ok(resp.json().await?)
+        self.post_form("request_state", &url, &[
+            ("device_id", device_id),
+            ("user_password", device_password),
+            ("NIF", nif),
+            ("sistema_operativo", OS_NAME),
+            ("version_os", OS_VERSION),
+            ("version_app", APP_VERSION),
+        ]).await
     }
 
     /// Get pending market petitions.
@@ -527,21 +439,13 @@ impl LlaveClient {
         nif: &str,
     ) -> Result<ApiResponse<serde_json::Value>> {
         let url = format!("{BASE_URL}/wlpl/MOVI-P24H/ObtenerPeticionesMarketsSv");
-        let resp = self
-            .client
-            .post(&url)
-            .header("TrazasApp", &self.trace_id)
-            .form(&[
-                ("device_id", device_id),
-                ("NIF", nif),
-                ("sistema_operativo", OS_NAME),
-                ("version_os", OS_VERSION),
-                ("version_app", APP_VERSION),
-            ])
-            .send()
-            .await?;
-
-        Ok(resp.json().await?)
+        self.post_form("get_pending_petitions", &url, &[
+            ("device_id", device_id),
+            ("NIF", nif),
+            ("sistema_operativo", OS_NAME),
+            ("version_os", OS_VERSION),
+            ("version_app", APP_VERSION),
+        ]).await
     }
 
     /// QR code authentication.
@@ -552,21 +456,13 @@ impl LlaveClient {
         qr_value: &str,
     ) -> Result<ApiResponse<serde_json::Value>> {
         let url = format!("{BASE_URL}/wlpl/MOVI-P24H/ClaveMovilQrSv");
-        let resp = self
-            .client
-            .post(&url)
-            .header("TrazasApp", &self.trace_id)
-            .form(&[
-                ("device_id", device_id),
-                ("NIF", nif),
-                ("sistema_operativo", OS_NAME),
-                ("version_os", OS_VERSION),
-                ("version_app", APP_VERSION),
-                ("valor_qr", qr_value),
-            ])
-            .send()
-            .await?;
-
-        Ok(resp.json().await?)
+        self.post_form("qr_authenticate", &url, &[
+            ("device_id", device_id),
+            ("NIF", nif),
+            ("sistema_operativo", OS_NAME),
+            ("version_os", OS_VERSION),
+            ("version_app", APP_VERSION),
+            ("valor_qr", qr_value),
+        ]).await
     }
 }

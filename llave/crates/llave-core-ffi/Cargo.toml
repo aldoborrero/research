@@ -14,3 +14,6 @@ flutter_rust_bridge = "=2.11.1"
 tokio = { workspace = true }
 uuid = { workspace = true }
 serde_json = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+tracing-logfmt = { workspace = true }

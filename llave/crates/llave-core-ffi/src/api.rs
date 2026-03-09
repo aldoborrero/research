@@ -1,4 +1,6 @@
 use flutter_rust_bridge::frb;
+use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::util::SubscriberInitExt;
 
 // ---------------------------------------------------------------------------
 // FFI-safe types (no lifetimes, simple owned data)
@@ -63,14 +65,24 @@ pub struct FfiNifCheckResult {
 /// saved JSON here on startup.
 #[frb]
 pub fn init_core(session_json: Option<String>) -> Result<bool, String> {
+    // Initialise logfmt tracing for Rust core (only once; ignore if already set).
+    let _ = tracing_subscriber::Registry::default()
+        .with(tracing_logfmt::layer())
+        .with(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| "llave_core=info,llave_core_ffi=info,warn".parse().unwrap()),
+        )
+        .try_init();
+
     if cfg!(target_os = "linux") {
-        // Desktop Linux: kernel keyutils — works without a daemon.
+        tracing::info!(backend = "keyring", "init storage");
         llave_core::init_storage(Box::new(llave_core::KeyringStorage::new()));
     } else {
-        // Mobile: in-memory storage, Flutter handles persistence.
+        tracing::info!(backend = "memory", "init storage");
         llave_core::init_storage(Box::new(llave_core::MemoryStorage::new()));
         if let Some(json) = session_json {
             llave_core::Session::set_session_data(&json).map_err(|e| e.to_string())?;
+            tracing::debug!("session hydrated from flutter");
         }
     }
     Ok(true)

@@ -1,7 +1,10 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:logging/logging.dart';
 
 import 'llave_bridge.dart';
 import 'secure_session_store.dart';
+
+final _log = Logger('AuthNotifier');
 
 /// Authentication state for the app.
 sealed class AuthState {
@@ -36,6 +39,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
   ///
   /// Must be called once before any other bridge interaction.
   Future<void> init() async {
+    _log.info('initialising core');
     final savedJson = await SecureSessionStore.read();
     await _bridge.initCore(savedJson);
     checkSession();
@@ -48,6 +52,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
         status.nif != null &&
         status.deviceId != null &&
         status.createdAt != null) {
+      _log.info('session active');
       state = AuthAuthenticated(LlaveSession(
         deviceId: status.deviceId!,
         nif: status.nif!,
@@ -55,28 +60,32 @@ class AuthNotifier extends StateNotifier<AuthState> {
         hasFirebaseToken: status.hasFirebaseToken,
       ));
     } else {
+      _log.info('no session');
       state = const AuthUnauthenticated();
     }
   }
 
   /// Activate device and transition to authenticated state.
   Future<void> activate(String nif, String? password) async {
+    _log.info('activating device');
     state = const AuthLoading();
     try {
       final session = await _bridge.activateDevice(nif, password);
-      // Persist session to platform secure storage
       final json = _bridge.exportSession();
       if (json != null) {
         await SecureSessionStore.write(json);
       }
+      _log.info('device activated');
       state = AuthAuthenticated(session);
     } catch (e) {
+      _log.severe('activation failed: $e');
       state = AuthError(e.toString());
     }
   }
 
   /// Log out and clear session.
   Future<void> logout() async {
+    _log.info('logging out');
     _bridge.logout();
     await SecureSessionStore.delete();
     state = const AuthUnauthenticated();
@@ -84,10 +93,11 @@ class AuthNotifier extends StateNotifier<AuthState> {
 
   /// Deactivate device remotely, then log out.
   Future<void> deactivate() async {
+    _log.info('deactivating device');
     try {
       await _bridge.deactivate();
-    } catch (_) {
-      // Even if remote deactivation fails, clear local session.
+    } catch (e) {
+      _log.warning('remote deactivation failed: $e');
     }
     await SecureSessionStore.delete();
     state = const AuthUnauthenticated();

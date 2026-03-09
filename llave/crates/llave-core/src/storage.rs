@@ -54,23 +54,32 @@ impl KeyringStorage {
 
 impl SecureStorage for KeyringStorage {
     fn save(&self, data: &str) -> Result<()> {
+        tracing::debug!(backend = "keyring", "session save");
         let entry = keyring::Entry::new(&self.service, &self.account)
             .map_err(|e| LlaveError::Keyring(e.to_string()))?;
         entry
             .set_password(data)
-            .map_err(|e| LlaveError::Keyring(e.to_string()))?;
+            .map_err(|e| {
+                tracing::error!(backend = "keyring", err = %e, "save failed");
+                LlaveError::Keyring(e.to_string())
+            })?;
         Ok(())
     }
 
     fn load(&self) -> Result<String> {
+        tracing::debug!(backend = "keyring", "session load");
         let entry = keyring::Entry::new(&self.service, &self.account)
             .map_err(|e| LlaveError::Keyring(e.to_string()))?;
         entry
             .get_password()
-            .map_err(|e| LlaveError::Keyring(e.to_string()))
+            .map_err(|e| {
+                tracing::debug!(backend = "keyring", err = %e, "load failed");
+                LlaveError::Keyring(e.to_string())
+            })
     }
 
     fn delete(&self) -> Result<()> {
+        tracing::debug!(backend = "keyring", "session delete");
         let entry = keyring::Entry::new(&self.service, &self.account)
             .map_err(|e| LlaveError::Keyring(e.to_string()))?;
         let _ = entry.delete_credential();

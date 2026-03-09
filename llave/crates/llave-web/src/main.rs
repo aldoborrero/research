@@ -6,6 +6,8 @@ use llave_core::{LlaveClient, Config, Session};
 use tokio::sync::broadcast;
 use tokio_util::sync::CancellationToken;
 use tower_http::cors::CorsLayer;
+use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::util::SubscriberInitExt;
 
 mod routes;
 mod sse;
@@ -20,8 +22,12 @@ pub struct AppState {
 
 #[tokio::main]
 async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
-    tracing_subscriber::fmt()
-        .with_env_filter("llave_web=info,llave_core=info")
+    tracing_subscriber::Registry::default()
+        .with(tracing_logfmt::layer())
+        .with(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| "llave_web=info,llave_core=info,warn".parse().unwrap()),
+        )
         .init();
 
     let _config = Config::load()?;
