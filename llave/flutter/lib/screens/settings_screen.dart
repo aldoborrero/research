@@ -26,18 +26,14 @@ class SettingsScreen extends ConsumerWidget {
             title: const Text('My Data'),
             subtitle: const Text('View Llave account information'),
             trailing: const Icon(Icons.chevron_right),
-            onTap: () {
-              // TODO: Navigate to my data or call getMyData()
-            },
+            onTap: () => context.go('/mydata'),
           ),
           ListTile(
             leading: const Icon(Icons.qr_code),
             title: const Text('QR Authentication'),
             subtitle: const Text('Scan a QR code to authenticate'),
             trailing: const Icon(Icons.chevron_right),
-            onTap: () {
-              // TODO: Navigate to QR screen
-            },
+            onTap: () => context.go('/qr'),
           ),
           const Divider(),
           _SectionHeader('Appearance'),

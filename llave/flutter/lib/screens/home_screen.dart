@@ -63,9 +63,7 @@ class HomeScreen extends ConsumerWidget {
                 _ActionChip(
                   icon: Icons.person,
                   label: 'My Data',
-                  onTap: () {
-                    // TODO: My data screen
-                  },
+                  onTap: () => context.go('/mydata'),
                 ),
               ],
             ),

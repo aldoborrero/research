@@ -18,6 +18,7 @@ import 'screens/settings_screen.dart';
 import 'screens/splash_screen.dart';
 import 'screens/dev_screen.dart';
 import 'screens/dni_auth_screen.dart';
+import 'screens/mydata_screen.dart';
 import 'screens/qr_auth_screen.dart';
 import 'src/auth_provider.dart';
 import 'src/theme_provider.dart';
@@ -87,6 +88,7 @@ GoRouter _buildRouter(WidgetRef ref) {
           GoRoute(path: '/pending', builder: (_, __) => const PendingScreen()),
           GoRoute(path: '/history', builder: (_, __) => const HistoryScreen()),
           GoRoute(path: '/qr', builder: (_, __) => const QrAuthScreen()),
+          GoRoute(path: '/mydata', builder: (_, __) => const MyDataScreen()),
           GoRoute(
               path: '/settings', builder: (_, __) => const SettingsScreen()),
           if (DevScreen.isEnabled)
