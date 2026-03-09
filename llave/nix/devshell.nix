@@ -47,4 +47,12 @@ pkgs.mkShell {
     ];
 
   RUST_SRC_PATH = "${toolchain}/lib/rustlib/src/rust/library";
+
+  shellHook = ''
+    # Ensure flutter_rust_bridge_codegen is available
+    if ! command -v flutter_rust_bridge_codegen &>/dev/null; then
+      echo "Installing flutter_rust_bridge_codegen..."
+      cargo install flutter_rust_bridge_codegen@2.9.0
+    fi
+  '';
 }

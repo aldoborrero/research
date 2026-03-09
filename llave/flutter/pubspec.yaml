@@ -29,7 +29,6 @@ dev_dependencies:
   build_runner: ^2.4.0
   freezed: ^2.5.0
   json_serializable: ^6.8.0
-  flutter_rust_bridge_codegen: 2.9.0
   integration_test:
     sdk: flutter
 
