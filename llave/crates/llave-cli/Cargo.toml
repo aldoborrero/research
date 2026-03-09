@@ -1,0 +1,19 @@
+[package]
+name = "llave-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "CLI tool for Llave AEAT authentication (Spain's digital identity system)"
+
+[[bin]]
+name = "llave"
+path = "src/main.rs"
+
+[dependencies]
+llave-core = { path = "../llave-core" }
+clap = { workspace = true }
+tokio = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+uuid = { workspace = true }
