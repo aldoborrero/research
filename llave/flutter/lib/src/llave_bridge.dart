@@ -366,7 +366,7 @@ class RealLlaveBridge implements LlaveBridge {
 enum BridgeType { mock, real }
 
 /// Which bridge implementation to use. Toggle from DevScreen.
-final bridgeTypeProvider = StateProvider<BridgeType>((ref) => BridgeType.mock);
+final bridgeTypeProvider = StateProvider<BridgeType>((ref) => BridgeType.real);
 
 /// Single bridge instance shared across the app, rebuilt when [bridgeTypeProvider] changes.
 final llaveBridgeProvider = Provider<LlaveBridge>((ref) {
