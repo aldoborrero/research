@@ -15,6 +15,7 @@ import 'screens/settings_screen.dart';
 import 'screens/splash_screen.dart';
 import 'screens/dev_screen.dart';
 import 'screens/dni_auth_screen.dart';
+import 'screens/qr_auth_screen.dart';
 import 'src/auth_provider.dart';
 import 'src/theme_provider.dart';
 
@@ -31,7 +32,7 @@ Future<void> main() async {
 }
 
 /// Routes that require an active session.
-const _protectedRoutes = {'/', '/pin', '/pending', '/history', '/settings'};
+const _protectedRoutes = {'/', '/pin', '/pending', '/history', '/settings', '/qr'};
 
 /// Routes that should not be accessible when already authenticated.
 const _guestOnlyRoutes = {'/activate', '/dni-auth'};
@@ -71,6 +72,7 @@ GoRouter _buildRouter(WidgetRef ref) {
           GoRoute(path: '/pin', builder: (_, __) => const PinScreen()),
           GoRoute(path: '/pending', builder: (_, __) => const PendingScreen()),
           GoRoute(path: '/history', builder: (_, __) => const HistoryScreen()),
+          GoRoute(path: '/qr', builder: (_, __) => const QrAuthScreen()),
           GoRoute(
               path: '/settings', builder: (_, __) => const SettingsScreen()),
           if (DevScreen.isEnabled)

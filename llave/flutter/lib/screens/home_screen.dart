@@ -58,9 +58,7 @@ class HomeScreen extends ConsumerWidget {
                 _ActionChip(
                   icon: Icons.qr_code,
                   label: 'QR Auth',
-                  onTap: () {
-                    // TODO: QR screen
-                  },
+                  onTap: () => context.go('/qr'),
                 ),
                 _ActionChip(
                   icon: Icons.person,
