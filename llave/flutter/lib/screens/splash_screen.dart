@@ -20,6 +20,7 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
   late final AnimationController _controller;
   late final Animation<double> _fadeIn;
   String _statusText = 'Loading...';
+  String? _fatalError;
 
   @override
   void initState() {
@@ -35,9 +36,6 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
 
   Future<void> _init() async {
     try {
-      // TODO: Initialise flutter_rust_bridge runtime:
-      // await RustLib.init();
-
       setState(() => _statusText = 'Checking session...');
 
       // Initialise the Rust core and restore any persisted session from
@@ -57,9 +55,15 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
       }
     } catch (e) {
       if (!mounted) return;
-      setState(() => _statusText = 'Error: $e');
-      await Future<void>.delayed(const Duration(seconds: 2));
-      if (mounted) context.go('/activate');
+      final msg = e.toString();
+      // Keyring errors are fatal — show the error and don't auto-navigate.
+      if (msg.contains('keyring') || msg.contains('secret service') || msg.contains('OS keyring')) {
+        setState(() => _fatalError = msg);
+      } else {
+        setState(() => _statusText = 'Error: $msg');
+        await Future<void>.delayed(const Duration(seconds: 2));
+        if (mounted) context.go('/activate');
+      }
     }
   }
 
@@ -72,6 +76,59 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+
+    if (_fatalError != null) {
+      return Scaffold(
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(32),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.lock_outline, size: 64, color: theme.colorScheme.error),
+                const SizedBox(height: 16),
+                Text(
+                  'Secure Storage Unavailable',
+                  style: theme.textTheme.titleLarge?.copyWith(
+                    fontWeight: FontWeight.bold,
+                    color: theme.colorScheme.error,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 500),
+                  child: Card(
+                    color: theme.colorScheme.errorContainer,
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: SelectableText(
+                        _fatalError!,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: theme.colorScheme.onErrorContainer,
+                          fontFamily: 'monospace',
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 24),
+                FilledButton.icon(
+                  onPressed: () {
+                    setState(() {
+                      _fatalError = null;
+                      _statusText = 'Retrying...';
+                    });
+                    _init();
+                  },
+                  icon: const Icon(Icons.refresh),
+                  label: const Text('Retry'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
 
     return Scaffold(
       body: Center(
