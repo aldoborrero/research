@@ -30,10 +30,20 @@ pkgs.mkShell {
 
       # Flutter Linux desktop dependencies
       pkgs.gtk3
-      # glib-2.0 private deps (their .pc files must be on PKG_CONFIG_PATH)
+      # glib/gio private deps — their .pc files must be on PKG_CONFIG_PATH
+      # because Flutter's cmake probes them transitively via Requires.private.
       pkgs.glib.dev
       pkgs.libsysprof-capture
       pkgs.pcre2
+      pkgs.util-linux.dev    # mount.pc, required by gio-2.0
+      pkgs.libselinux        # libselinux.pc, required by gio-2.0
+      pkgs.libsepol          # libsepol.pc, required by libselinux
+      pkgs.fribidi           # fribidi.pc, required by pango
+      pkgs.libthai           # libthai.pc, required by pango
+      pkgs.libdatrie         # libdatrie.pc, required by libthai
+      pkgs.xorg.libXdmcp     # xdmcp.pc, required by xcb
+      pkgs.pcre              # libpcre.pc (v1), required by some transitive deps
+      pkgs.libepoxy          # epoxy.pc, required by gtk3
       pkgs.libsecret  # flutter_secure_storage on Linux
       pkgs.jsoncpp    # flutter_secure_storage on Linux
       pkgs.cmake
