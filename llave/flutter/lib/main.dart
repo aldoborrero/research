@@ -14,6 +14,7 @@ import 'screens/history_screen.dart';
 import 'screens/settings_screen.dart';
 import 'screens/splash_screen.dart';
 import 'screens/dev_screen.dart';
+import 'screens/dni_auth_screen.dart';
 import 'src/auth_provider.dart';
 import 'src/theme_provider.dart';
 
@@ -33,7 +34,7 @@ Future<void> main() async {
 const _protectedRoutes = {'/', '/pin', '/pending', '/history', '/settings'};
 
 /// Routes that should not be accessible when already authenticated.
-const _guestOnlyRoutes = {'/activate'};
+const _guestOnlyRoutes = {'/activate', '/dni-auth'};
 
 GoRouter _buildRouter(WidgetRef ref) {
   return GoRouter(
@@ -62,6 +63,7 @@ GoRouter _buildRouter(WidgetRef ref) {
     routes: [
       GoRoute(path: '/splash', builder: (_, __) => const SplashScreen()),
       GoRoute(path: '/activate', builder: (_, __) => const ActivateScreen()),
+      GoRoute(path: '/dni-auth', builder: (_, __) => const DniAuthScreen()),
       ShellRoute(
         builder: (context, state, child) => AppShell(child: child),
         routes: [

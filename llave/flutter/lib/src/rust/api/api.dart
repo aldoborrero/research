@@ -83,5 +83,8 @@ Future<FfiApiResult> rejectRequest(
 Future<FfiApiResult> qrAuthenticate({required String value}) =>
     throw UnimplementedError(_msg);
 Future<FfiApiResult> deactivate() => throw UnimplementedError(_msg);
+Future<FfiApiResult> dniAuthenticate(
+        {required String nif, required String fecha, required String soporte}) =>
+    throw UnimplementedError(_msg);
 bool logout() => throw UnimplementedError(_msg);
 String validateNif({required String nif}) => throw UnimplementedError(_msg);

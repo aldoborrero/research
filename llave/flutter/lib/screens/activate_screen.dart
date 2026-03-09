@@ -196,6 +196,28 @@ class _ActivateScreenState extends ConsumerState<ActivateScreen> {
                     padding: const EdgeInsets.symmetric(vertical: 16),
                   ),
                 ),
+
+                const SizedBox(height: 24),
+                const Divider(),
+                const SizedBox(height: 16),
+
+                // DNI/NIE alternative auth
+                Text(
+                  'Or authenticate without activation:',
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 12),
+                OutlinedButton.icon(
+                  onPressed: _loading ? null : () => context.go('/dni-auth'),
+                  icon: const Icon(Icons.badge_outlined),
+                  label: const Text('Login with DNI/NIE'),
+                  style: OutlinedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                  ),
+                ),
               ],
             ),
           ),

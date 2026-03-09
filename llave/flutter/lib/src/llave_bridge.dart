@@ -103,6 +103,7 @@ abstract class LlaveBridge {
   Future<LlaveApiResult> rejectRequest(String token, String idpCode);
   Future<LlaveApiResult> qrAuthenticate(String value);
   Future<LlaveApiResult> deactivate();
+  Future<LlaveApiResult> dniAuthenticate(String nif, String fecha, String soporte);
   bool logout();
   String validateNif(String nif);
 }
@@ -229,6 +230,15 @@ class MockLlaveBridge implements LlaveBridge {
   }
 
   @override
+  Future<LlaveApiResult> dniAuthenticate(String nif, String fecha, String soporte) async {
+    await Future<void>.delayed(const Duration(milliseconds: 800));
+    return const LlaveApiResult(
+      ok: true,
+      data: '<html><body>Mock DNI authentication successful</body></html>',
+    );
+  }
+
+  @override
   bool logout() {
     _session = null;
     return true;
@@ -349,6 +359,12 @@ class RealLlaveBridge implements LlaveBridge {
   @override
   Future<LlaveApiResult> deactivate() async {
     final r = await ffi.deactivate();
+    return LlaveApiResult(ok: r.ok, data: r.data, error: r.error);
+  }
+
+  @override
+  Future<LlaveApiResult> dniAuthenticate(String nif, String fecha, String soporte) async {
+    final r = await ffi.dniAuthenticate(nif: nif, fecha: fecha, soporte: soporte);
     return LlaveApiResult(ok: r.ok, data: r.data, error: r.error);
   }
 

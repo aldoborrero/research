@@ -372,3 +372,30 @@ pub fn logout() -> Result<bool, String> {
 pub fn validate_nif(nif: String) -> Result<String, String> {
     llave_core::config::validate_nif(&nif).map_err(|e| e.to_string())
 }
+
+/// Authenticate using DNI/NIE weak authentication (no certificate needed).
+///
+/// Requires the NIF, the expiry date of the physical DNI card (DD/MM/YYYY),
+/// and the support number printed on the card.
+#[frb]
+pub async fn dni_authenticate(
+    nif: String,
+    fecha: String,
+    soporte: String,
+) -> Result<FfiApiResult, String> {
+    let nif = llave_core::config::validate_nif(&nif).map_err(|e| e.to_string())?;
+    let client = llave_core::LlaveClient::new().map_err(|e| e.to_string())?;
+
+    match llave_core::auth::authenticate_dni(&client, &nif, &fecha, &soporte).await {
+        Ok(html) => Ok(FfiApiResult {
+            ok: true,
+            data: html,
+            error: None,
+        }),
+        Err(e) => Ok(FfiApiResult {
+            ok: false,
+            data: String::new(),
+            error: Some(e.to_string()),
+        }),
+    }
+}
