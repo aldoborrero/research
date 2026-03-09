@@ -3,6 +3,5 @@
 
 rust_input: crate::api
 rust_root: ../crates/llave-core-ffi/
-rust_output: src/frb_generated.rs
 dart_output: lib/src/rust/
 c_output: ios/Runner/bridge_generated.h
