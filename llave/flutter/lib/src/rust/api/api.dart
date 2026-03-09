@@ -10,7 +10,7 @@ import 'dart:isolate';
 import 'package:ffi/ffi.dart';
 
 // ---------------------------------------------------------------------------
-// FFI types (unchanged from stubs)
+// FFI types
 // ---------------------------------------------------------------------------
 
 class FfiSession {
