@@ -215,3 +215,52 @@ pub unsafe extern "C" fn llave_dni_authenticate(
         to_str(soporte),
     )))
 }
+
+#[no_mangle]
+pub unsafe extern "C" fn llave_set_firebase_token(token_push: *const c_char) -> *mut c_char {
+    api_result_json(rt().block_on(crate::api::set_firebase_token(to_str(token_push))))
+}
+
+#[no_mangle]
+pub extern "C" fn llave_request_sms_code() -> *mut c_char {
+    api_result_json(rt().block_on(crate::api::request_sms_code()))
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn llave_validate_sms_code(
+    timestamp: *const c_char,
+    token: *const c_char,
+    pin: *const c_char,
+) -> *mut c_char {
+    api_result_json(rt().block_on(crate::api::validate_sms_code(
+        to_str(timestamp),
+        to_str(token),
+        to_str(pin),
+    )))
+}
+
+#[no_mangle]
+pub extern "C" fn llave_get_llave_movil() -> *mut c_char {
+    api_result_json(rt().block_on(crate::api::get_llave_movil()))
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn llave_validate_llave_movil(token: *const c_char) -> *mut c_char {
+    api_result_json(rt().block_on(crate::api::validate_llave_movil(to_str(token))))
+}
+
+#[no_mangle]
+pub extern "C" fn llave_get_pending_petitions() -> *mut c_char {
+    api_result_json(rt().block_on(crate::api::get_pending_petitions()))
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn llave_listen_for_requests(
+    interval_secs: u64,
+    max_attempts: u32,
+) -> *mut c_char {
+    api_result_json(rt().block_on(crate::api::listen_for_requests(
+        interval_secs,
+        max_attempts,
+    )))
+}

@@ -421,3 +421,188 @@ pub async fn dni_authenticate(
         }),
     }
 }
+
+/// Register a Firebase push notification token.
+#[frb]
+pub async fn set_firebase_token(token_push: String) -> Result<FfiApiResult, String> {
+    let session = llave_core::Session::load().map_err(|e| e.to_string())?;
+    let client = llave_core::LlaveClient::new().map_err(|e| e.to_string())?;
+
+    let _starting = client
+        .starting(&session.device_id, &session.nif, "")
+        .await
+        .map_err(|e| e.to_string())?;
+
+    match client
+        .set_firebase_token(&session.device_id, &session.nif, &token_push)
+        .await
+    {
+        Ok(resp) => Ok(FfiApiResult {
+            ok: true,
+            data: serde_json::to_string(&resp.respuesta).unwrap_or_default(),
+            error: None,
+        }),
+        Err(e) => Ok(FfiApiResult {
+            ok: false,
+            data: String::new(),
+            error: Some(e.to_string()),
+        }),
+    }
+}
+
+/// Request an SMS verification code.
+#[frb]
+pub async fn request_sms_code() -> Result<FfiApiResult, String> {
+    let session = llave_core::Session::load().map_err(|e| e.to_string())?;
+    let client = llave_core::LlaveClient::new().map_err(|e| e.to_string())?;
+
+    let _starting = client
+        .starting(&session.device_id, &session.nif, "")
+        .await
+        .map_err(|e| e.to_string())?;
+
+    match client.request_sms_code().await {
+        Ok(resp) => Ok(FfiApiResult {
+            ok: true,
+            data: serde_json::to_string(&resp.respuesta).unwrap_or_default(),
+            error: None,
+        }),
+        Err(e) => Ok(FfiApiResult {
+            ok: false,
+            data: String::new(),
+            error: Some(e.to_string()),
+        }),
+    }
+}
+
+/// Validate an SMS verification code.
+#[frb]
+pub async fn validate_sms_code(
+    timestamp: String,
+    token: String,
+    pin: String,
+) -> Result<FfiApiResult, String> {
+    let session = llave_core::Session::load().map_err(|e| e.to_string())?;
+    let client = llave_core::LlaveClient::new().map_err(|e| e.to_string())?;
+
+    let _starting = client
+        .starting(&session.device_id, &session.nif, "")
+        .await
+        .map_err(|e| e.to_string())?;
+
+    match client.validate_sms_code(&timestamp, &token, &pin).await {
+        Ok(resp) => Ok(FfiApiResult {
+            ok: true,
+            data: serde_json::to_string(&resp.respuesta).unwrap_or_default(),
+            error: None,
+        }),
+        Err(e) => Ok(FfiApiResult {
+            ok: false,
+            data: String::new(),
+            error: Some(e.to_string()),
+        }),
+    }
+}
+
+/// Get Llave Móvil token.
+#[frb]
+pub async fn get_llave_movil() -> Result<FfiApiResult, String> {
+    let session = llave_core::Session::load().map_err(|e| e.to_string())?;
+    let client = llave_core::LlaveClient::new().map_err(|e| e.to_string())?;
+
+    let _starting = client
+        .starting(&session.device_id, &session.nif, "")
+        .await
+        .map_err(|e| e.to_string())?;
+
+    match client.get_llave_movil().await {
+        Ok(resp) => Ok(FfiApiResult {
+            ok: true,
+            data: serde_json::to_string(&resp.respuesta).unwrap_or_default(),
+            error: None,
+        }),
+        Err(e) => Ok(FfiApiResult {
+            ok: false,
+            data: String::new(),
+            error: Some(e.to_string()),
+        }),
+    }
+}
+
+/// Validate a Llave Móvil token.
+#[frb]
+pub async fn validate_llave_movil(token: String) -> Result<FfiApiResult, String> {
+    let session = llave_core::Session::load().map_err(|e| e.to_string())?;
+    let client = llave_core::LlaveClient::new().map_err(|e| e.to_string())?;
+
+    let _starting = client
+        .starting(&session.device_id, &session.nif, "")
+        .await
+        .map_err(|e| e.to_string())?;
+
+    match client.validate_llave_movil(&token).await {
+        Ok(resp) => Ok(FfiApiResult {
+            ok: true,
+            data: serde_json::to_string(&resp.respuesta).unwrap_or_default(),
+            error: None,
+        }),
+        Err(e) => Ok(FfiApiResult {
+            ok: false,
+            data: String::new(),
+            error: Some(e.to_string()),
+        }),
+    }
+}
+
+/// Get pending market petitions.
+#[frb]
+pub async fn get_pending_petitions() -> Result<FfiApiResult, String> {
+    let session = llave_core::Session::load().map_err(|e| e.to_string())?;
+    let client = llave_core::LlaveClient::new().map_err(|e| e.to_string())?;
+
+    let _starting = client
+        .starting(&session.device_id, &session.nif, "")
+        .await
+        .map_err(|e| e.to_string())?;
+
+    match client
+        .get_pending_petitions(&session.device_id, &session.nif)
+        .await
+    {
+        Ok(resp) => Ok(FfiApiResult {
+            ok: true,
+            data: serde_json::to_string(&resp.respuesta).unwrap_or_default(),
+            error: None,
+        }),
+        Err(e) => Ok(FfiApiResult {
+            ok: false,
+            data: String::new(),
+            error: Some(e.to_string()),
+        }),
+    }
+}
+
+/// Listen for pending authentication requests (polling loop).
+#[frb]
+pub async fn listen_for_requests(
+    interval_secs: u64,
+    max_attempts: u32,
+) -> Result<FfiApiResult, String> {
+    let session = llave_core::Session::load().map_err(|e| e.to_string())?;
+    let client = llave_core::LlaveClient::new().map_err(|e| e.to_string())?;
+
+    match llave_core::auth::listen_for_requests(&client, &session, interval_secs, max_attempts)
+        .await
+    {
+        Ok(data) => Ok(FfiApiResult {
+            ok: true,
+            data: serde_json::to_string(&data).unwrap_or_default(),
+            error: None,
+        }),
+        Err(e) => Ok(FfiApiResult {
+            ok: false,
+            data: String::new(),
+            error: Some(e.to_string()),
+        }),
+    }
+}
