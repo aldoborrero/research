@@ -45,7 +45,9 @@ pkgs.mkShell {
       pkgs.pcre              # libpcre.pc (v1), required by some transitive deps
       pkgs.libepoxy          # epoxy.pc, required by gtk3
       pkgs.libdeflate        # libdeflate.pc, required by libtiff-4
+      pkgs.lerc              # Lerc.pc, required by libtiff-4
       pkgs.libgcrypt         # libgcrypt.pc, required by libsecret-1
+      pkgs.libgpg-error      # gpg-error.pc, required by libgcrypt
       pkgs.libsecret  # flutter_secure_storage on Linux
       pkgs.jsoncpp    # flutter_secure_storage on Linux
       pkgs.cmake
