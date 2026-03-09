@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+// TODO: Uncomment after running flutter_rust_bridge_codegen:
+// import 'src/rust/frb_generated.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -13,8 +15,9 @@ import 'screens/dev_screen.dart';
 import 'src/auth_provider.dart';
 import 'src/theme_provider.dart';
 
-void main() {
-  // TODO: Initialize flutter_rust_bridge runtime here after codegen:
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  // TODO: Uncomment after running flutter_rust_bridge_codegen:
   // await RustLib.init();
   runApp(const ProviderScope(child: LlaveApp()));
 }

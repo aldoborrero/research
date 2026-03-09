@@ -1,5 +1,8 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+// Generated FFI bindings — available after running flutter_rust_bridge_codegen.
+import 'rust/api/api.dart' as ffi;
+
 // ---------------------------------------------------------------------------
 // Dart-side models mirroring the FFI types from llave-core-ffi.
 // These will be replaced by flutter_rust_bridge generated types after codegen.
@@ -252,12 +255,123 @@ class MockLlaveBridge implements LlaveBridge {
 }
 
 // ---------------------------------------------------------------------------
+// Real bridge calling into Rust via flutter_rust_bridge FFI.
+// ---------------------------------------------------------------------------
+
+class RealLlaveBridge implements LlaveBridge {
+  @override
+  Future<void> initCore(String? sessionJson) async {
+    await ffi.initCore(sessionJson: sessionJson);
+  }
+
+  @override
+  String? exportSession() => ffi.exportSession();
+
+  @override
+  Future<LlaveSession> activateDevice(String nif, String? password) async {
+    final s = await ffi.activateDevice(nif: nif, password: password);
+    return LlaveSession(
+      deviceId: s.deviceId,
+      nif: s.nif,
+      createdAt: s.createdAt,
+      hasFirebaseToken: s.hasFirebaseToken,
+    );
+  }
+
+  @override
+  Future<LlavePinResult> requestPin() async {
+    final r = await ffi.requestPin();
+    return LlavePinResult(
+      pin: r.pin,
+      timeToLiveSeconds: r.timeToLiveSeconds,
+      nif: r.nif,
+    );
+  }
+
+  @override
+  LlaveStatus getStatus() {
+    final s = ffi.getStatus();
+    return LlaveStatus(
+      active: s.active,
+      nif: s.nif,
+      deviceId: s.deviceId,
+      createdAt: s.createdAt,
+      hasFirebaseToken: s.hasFirebaseToken,
+    );
+  }
+
+  @override
+  Future<LlaveNifCheckResult> checkNif(String? nif) async {
+    final r = await ffi.checkNif(nif: nif);
+    return LlaveNifCheckResult(
+      nif: r.nif,
+      status: r.status,
+      responseJson: r.responseJson,
+    );
+  }
+
+  @override
+  Future<LlaveApiResult> getMyData() async {
+    final r = await ffi.getMyData();
+    return LlaveApiResult(ok: r.ok, data: r.data, error: r.error);
+  }
+
+  @override
+  Future<LlaveApiResult> getHistory() async {
+    final r = await ffi.getHistory();
+    return LlaveApiResult(ok: r.ok, data: r.data, error: r.error);
+  }
+
+  @override
+  Future<LlaveApiResult> getPendingRequests() async {
+    final r = await ffi.getPendingRequests();
+    return LlaveApiResult(ok: r.ok, data: r.data, error: r.error);
+  }
+
+  @override
+  Future<LlaveApiResult> confirmRequest(String token, String idpCode) async {
+    final r = await ffi.confirmRequest(token: token, idpCode: idpCode);
+    return LlaveApiResult(ok: r.ok, data: r.data, error: r.error);
+  }
+
+  @override
+  Future<LlaveApiResult> rejectRequest(String token, String idpCode) async {
+    final r = await ffi.rejectRequest(token: token, idpCode: idpCode);
+    return LlaveApiResult(ok: r.ok, data: r.data, error: r.error);
+  }
+
+  @override
+  Future<LlaveApiResult> qrAuthenticate(String value) async {
+    final r = await ffi.qrAuthenticate(value: value);
+    return LlaveApiResult(ok: r.ok, data: r.data, error: r.error);
+  }
+
+  @override
+  Future<LlaveApiResult> deactivate() async {
+    final r = await ffi.deactivate();
+    return LlaveApiResult(ok: r.ok, data: r.data, error: r.error);
+  }
+
+  @override
+  bool logout() => ffi.logout();
+
+  @override
+  String validateNif(String nif) => ffi.validateNif(nif: nif);
+}
+
+// ---------------------------------------------------------------------------
 // Riverpod providers
 // ---------------------------------------------------------------------------
 
-/// Single bridge instance shared across the app.
+enum BridgeType { mock, real }
+
+/// Which bridge implementation to use. Toggle from DevScreen.
+final bridgeTypeProvider = StateProvider<BridgeType>((ref) => BridgeType.mock);
+
+/// Single bridge instance shared across the app, rebuilt when [bridgeTypeProvider] changes.
 final llaveBridgeProvider = Provider<LlaveBridge>((ref) {
-  // TODO: Replace with RealLlaveBridge after flutter_rust_bridge codegen:
-  // return RealLlaveBridge();
-  return MockLlaveBridge();
+  return switch (ref.watch(bridgeTypeProvider)) {
+    BridgeType.mock => MockLlaveBridge(),
+    BridgeType.real => RealLlaveBridge(),
+  };
 });

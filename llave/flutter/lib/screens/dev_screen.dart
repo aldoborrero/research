@@ -34,17 +34,22 @@ class _DevScreenState extends ConsumerState<DevScreen> {
       body: ListView(
         padding: const EdgeInsets.symmetric(vertical: 8),
         children: [
-          // Bridge info
+          // Bridge info + toggle
           _SectionHeader('Bridge'),
-          ListTile(
-            leading: Icon(
+          SwitchListTile(
+            secondary: Icon(
               isMock ? Icons.science : Icons.link,
               color: isMock ? Colors.orange : Colors.green,
             ),
             title: Text(isMock ? 'MockLlaveBridge' : 'RealLlaveBridge'),
             subtitle: Text(isMock
-                ? 'Using mock data. Run flutter_rust_bridge_codegen to use real Rust core.'
+                ? 'Using mock data'
                 : 'Connected to Rust core via FFI'),
+            value: !isMock,
+            onChanged: (useReal) {
+              ref.read(bridgeTypeProvider.notifier).state =
+                  useReal ? BridgeType.real : BridgeType.mock;
+            },
           ),
 
           const Divider(),
