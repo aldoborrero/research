@@ -10,7 +10,7 @@ crate-type = ["cdylib", "staticlib"]
 
 [dependencies]
 llave-core = { path = "../llave-core" }
-flutter_rust_bridge = "=2.9.0"
+flutter_rust_bridge = "=2.11.1"
 tokio = { workspace = true }
 uuid = { workspace = true }
 serde_json = { workspace = true }
