@@ -51,17 +51,26 @@ pub struct FfiNifCheckResult {
 // Storage initialisation — must be called before any other function.
 // ---------------------------------------------------------------------------
 
-/// Initialise the Rust core with in-memory storage for mobile platforms.
+/// Initialise the Rust core storage backend.
 ///
-/// Flutter should call this once at startup (e.g. in `main()` before any other
-/// FFI call).  If a previously-saved session JSON is available from
-/// `flutter_secure_storage`, pass it here to hydrate the session; otherwise
-/// pass `null`.
+/// On **Linux desktop** the Rust core uses [`KeyringStorage`] which persists
+/// the session in the OS secret store (GNOME Keyring / KDE Wallet / etc.)
+/// directly — Flutter does not need to handle persistence.
+///
+/// On **mobile** (Android/iOS) the core uses [`MemoryStorage`]; Flutter is
+/// responsible for persisting via `flutter_secure_storage` and passing the
+/// saved JSON here on startup.
 #[frb]
 pub fn init_core(session_json: Option<String>) -> Result<bool, String> {
-    llave_core::init_storage(Box::new(llave_core::MemoryStorage::new()));
-    if let Some(json) = session_json {
-        llave_core::Session::set_session_data(&json).map_err(|e| e.to_string())?;
+    if cfg!(target_os = "linux") {
+        // Desktop Linux: Rust owns persistence via the OS keyring.
+        llave_core::init_storage(Box::new(llave_core::KeyringStorage::new()));
+    } else {
+        // Mobile: in-memory storage, Flutter handles persistence.
+        llave_core::init_storage(Box::new(llave_core::MemoryStorage::new()));
+        if let Some(json) = session_json {
+            llave_core::Session::set_session_data(&json).map_err(|e| e.to_string())?;
+        }
     }
     Ok(true)
 }
