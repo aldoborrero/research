@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
-// TODO: Uncomment after running flutter_rust_bridge_codegen:
-// import 'src/rust/frb_generated.dart';
+import 'src/rust/frb_generated.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -17,8 +16,7 @@ import 'src/theme_provider.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  // TODO: Uncomment after running flutter_rust_bridge_codegen:
-  // await RustLib.init();
+  await RustLib.init();
   runApp(const ProviderScope(child: LlaveApp()));
 }
 

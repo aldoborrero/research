@@ -9,6 +9,5 @@
 
 library;
 
-// TODO: Uncomment after running flutter_rust_bridge_codegen:
-// export 'rust/frb_generated.dart';
-// export 'rust/api/api.dart';
+export 'rust/frb_generated.dart';
+export 'rust/api/api.dart';
