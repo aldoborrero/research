@@ -1,4 +1,7 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
+import 'package:flutter_rust_bridge/flutter_rust_bridge.dart';
 import 'src/rust/frb_generated.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -16,7 +19,13 @@ import 'src/theme_provider.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await RustLib.init();
+  // Resolve the library path relative to the executable so dlopen can find it
+  // regardless of RPATH/RUNPATH configuration.
+  final exeDir = File(Platform.resolvedExecutable).parent.path;
+  await RustLib.init(
+    externalLibrary:
+        ExternalLibrary.open('$exeDir/lib/libllave_core_ffi.so'),
+  );
   runApp(const ProviderScope(child: LlaveApp()));
 }
 
