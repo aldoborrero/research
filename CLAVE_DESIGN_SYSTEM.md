@@ -1,5 +1,5 @@
-# Cl@ve PIN App -- Design System
-## Linear / Vercel Aesthetic for Flutter
+# Llave -- Design System
+## Linear / Vercel Aesthetic for Flutter (AEAT PIN Management)
 
 ---
 
@@ -19,7 +19,7 @@
 | Text Tertiary         | `#A3A3A3` | Placeholder text, disabled states           |
 | Accent                | `#5E6AD2` | Primary actions, links, active states       |
 | Accent Hover          | `#4F5ABF` | Button hover / pressed states               |
-| Success               | `#2DA44E` | Positive feedback, "PIN verified"           |
+| Success               | `#2DA44E` | Positive feedback, PIN verified             |
 | Error                 | `#E5484D` | Error states, invalid PIN                   |
 | Warning               | `#F5A623` | Caution states                              |
 
@@ -53,7 +53,7 @@ The Linear/Vercel aesthetic uses a single muted accent. Choose one:
 | Teal              | `#0D9488`   | `#2DD4BF`   | Fintech / fresh                      |
 | Neutral (none)    | `#171717`   | `#EDEDED`   | Fully monochrome, buttons use text   |
 
-**Recommendation for Cl@ve:** Use the **Indigo** (`#5E6AD2`) accent. It reads as
+**Recommendation for Llave:** Use the **Indigo** (`#5E6AD2`) accent. It reads as
 trustworthy without being generic "bank blue." It is the exact hue Linear uses and
 pairs perfectly with the neutral gray scale.
 
@@ -324,7 +324,7 @@ TextField(
 
 ### 4.4 PIN Entry Display
 
-The PIN entry is the hero of a Cl@ve app. Make it feel special but restrained.
+The PIN entry is the hero of a Llave app. Make it feel special but restrained.
 
 ```dart
 /// Individual PIN dot / digit
@@ -385,7 +385,7 @@ AppBar(
   scrolledUnderElevation: 0,         // prevents Material 3 scroll shadow
   centerTitle: true,
   title: Text(
-    'Cl@ve PIN',
+    'Llave PIN',
     style: GoogleFonts.inter(
       fontSize: 16,
       fontWeight: FontWeight.w600,
@@ -775,7 +775,7 @@ class AppTheme {
 ```
 +------------------------------------------+
 |              (transparent AppBar)          |
-|  <-  back                    Cl@ve PIN    |
+|  <-  back                    Llave PIN    |
 +------------------------------------------+
 |                                            |
 |    [48px top padding]                      |
@@ -820,7 +820,7 @@ class AppTheme {
 |    Enter your PIN  (24px, w600, centered) |
 |    [8px]                                   |
 |    Enter the PIN you use   (14px, gray)   |
-|    to access Cl@ve          (centered)    |
+|    to access Llave          (centered)    |
 |                                            |
 |    [48px]                                  |
 |                                            |
