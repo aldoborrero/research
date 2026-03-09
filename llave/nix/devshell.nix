@@ -41,9 +41,11 @@ pkgs.mkShell {
       pkgs.fribidi           # fribidi.pc, required by pango
       pkgs.libthai           # libthai.pc, required by pango
       pkgs.libdatrie         # libdatrie.pc, required by libthai
-      pkgs.xorg.libXdmcp     # xdmcp.pc, required by xcb
+      pkgs.libxdmcp           # xdmcp.pc, required by xcb
       pkgs.pcre              # libpcre.pc (v1), required by some transitive deps
       pkgs.libepoxy          # epoxy.pc, required by gtk3
+      pkgs.libdeflate        # libdeflate.pc, required by libtiff-4
+      pkgs.libgcrypt         # libgcrypt.pc, required by libsecret-1
       pkgs.libsecret  # flutter_secure_storage on Linux
       pkgs.jsoncpp    # flutter_secure_storage on Linux
       pkgs.cmake

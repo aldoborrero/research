@@ -75,7 +75,9 @@ class FfiNifCheckResult {
 // ---------------------------------------------------------------------------
 
 /// Must be set before any FFI call. Typically set from main().
-late String nativeLibPath;
+late String _nativeLibPath;
+String get nativeLibPath => _nativeLibPath;
+set nativeLibPath(String path) => _nativeLibPath = path;
 
 // C function typedefs
 typedef _FreeStringC = ffi.Void Function(ffi.Pointer<Utf8>);
