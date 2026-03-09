@@ -30,7 +30,10 @@ pkgs.mkShell {
 
       # Flutter Linux desktop dependencies
       pkgs.gtk3
-      pkgs.libsysprof-capture  # sysprof-capture-4.pc, required by glib-2.0
+      # glib-2.0 private deps (their .pc files must be on PKG_CONFIG_PATH)
+      pkgs.glib.dev
+      pkgs.libsysprof-capture
+      pkgs.pcre2
       pkgs.libsecret  # flutter_secure_storage on Linux
       pkgs.jsoncpp    # flutter_secure_storage on Linux
       pkgs.cmake
