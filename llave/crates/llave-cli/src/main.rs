@@ -305,18 +305,20 @@ async fn run(cli: &Cli) -> Result<()> {
             let session = Session::load()?;
             let client = LlaveClient::new()?;
 
-            let _starting = client
-                .starting(&session.device_id, &session.nif, "")
+            // Mirror the Android app: ClaveIsNifActivatedSv → ClaveCheckMyDataSv.
+            let _activated = client
+                .clave_is_nif_activated(&session.device_id, &session.nif)
                 .await?;
 
             let resp = client
-                .check_my_data(&session.device_id, &session.nif)
+                .clave_check_my_data(&session.device_id, &session.nif)
                 .await?;
 
             output(
                 cli,
                 json!({
                     "status": resp.status,
+                    "nif": session.nif,
                     "data": resp.respuesta,
                 }),
             );

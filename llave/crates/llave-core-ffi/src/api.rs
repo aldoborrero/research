@@ -194,25 +194,47 @@ pub async fn check_nif(nif: Option<String>) -> Result<FfiNifCheckResult, String>
 }
 
 /// Get account data.
+///
+/// Mirrors the Android app flow: ClaveIsNifActivatedSv → ClaveCheckMyDataSv.
+/// The response contains `email`, `numTelefono`, and `nivelRegistro`.
 #[frb]
 pub async fn get_my_data() -> Result<FfiApiResult, String> {
     let session = llave_core::Session::load().map_err(|e| e.to_string())?;
     let client = llave_core::LlaveClient::new().map_err(|e| e.to_string())?;
 
-    let _starting = client
-        .starting(&session.device_id, &session.nif, "")
+    // Step 1: ClaveIsNifActivatedSv (the Android app calls this before CheckMyData).
+    let _activated = client
+        .clave_is_nif_activated(&session.device_id, &session.nif)
         .await
         .map_err(|e| e.to_string())?;
 
+    // Step 2: ClaveCheckMyDataSv (returns email, numTelefono, nivelRegistro).
     match client
-        .check_my_data(&session.device_id, &session.nif)
+        .clave_check_my_data(&session.device_id, &session.nif)
         .await
     {
-        Ok(resp) => Ok(FfiApiResult {
-            ok: true,
-            data: serde_json::to_string(&resp.respuesta).unwrap_or_default(),
-            error: None,
-        }),
+        Ok(resp) => {
+            // Build a combined response including NIF (not returned by server
+            // but known from the session) so the UI can display it.
+            let mut data = serde_json::Map::new();
+            data.insert("nif".into(), serde_json::json!(session.nif));
+            if let Some(ref inner) = resp.respuesta {
+                if let Some(ref v) = inner.email {
+                    data.insert("email".into(), serde_json::json!(v));
+                }
+                if let Some(ref v) = inner.num_telefono {
+                    data.insert("numTelefono".into(), serde_json::json!(v));
+                }
+                if let Some(ref v) = inner.nivel_registro {
+                    data.insert("nivelRegistro".into(), serde_json::json!(v));
+                }
+            }
+            Ok(FfiApiResult {
+                ok: true,
+                data: serde_json::to_string(&data).unwrap_or_default(),
+                error: None,
+            })
+        }
         Err(e) => Ok(FfiApiResult {
             ok: false,
             data: String::new(),

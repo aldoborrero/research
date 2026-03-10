@@ -109,16 +109,12 @@ class _MyDataScreenState extends State<MyDataScreen> {
   List<Widget> _buildFields(ThemeData theme) {
     if (_data == null) return [];
 
-    // Known fields from AEAT API
+    // Fields from ClaveCheckMyDataSv + session NIF.
     final labels = {
-      'nombre': 'Name',
-      'NIF': 'NIF',
       'nif': 'NIF',
-      'telefono': 'Phone',
-      'nivelAcceso': 'Access Level',
-      'fechaCaducidad': 'Expiry Date',
-      'fechaAlta': 'Registration Date',
       'email': 'Email',
+      'numTelefono': 'Phone',
+      'nivelRegistro': 'Registration Level',
     };
 
     final widgets = <Widget>[];
