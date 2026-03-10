@@ -351,26 +351,106 @@ impl LlaveClient {
 
     /// Authenticate with DNI/NIE + date of birth (weak auth).
     ///
-    /// Sends `modo=json` so the server returns a JSON envelope instead of HTML.
+    /// This endpoint **always returns HTML** (not JSON).  The Android app
+    /// ignores the response body entirely — the only thing that matters are
+    /// the session cookies set during the HTTP redirect chain.
+    ///
+    /// We follow redirects manually so we can capture `Set-Cookie` headers
+    /// from every hop (reqwest's automatic redirect only exposes cookies
+    /// from the final response).
     pub async fn authenticate_dni_nie(
         &self,
         nif: &str,
         fecha: &str,
         soporte: &str,
-    ) -> Result<ApiResponse<serde_json::Value>> {
+    ) -> Result<()> {
         let url = format!(
             "{BASE_URL}/wlpl/BUCV-JDIT/AutenticaDniNieContrasteh?ref=%2Fwlpl%2FMOVI-AEAT%2FAccesoW12Sv"
         );
-        self.post_form("authenticate_dni_nie", &url, &[
-            ("NIF", nif),
-            ("FECHA", fecha),
-            ("SOPORTE", soporte),
-            ("botonAutenticacionDebil", "Continuar"),
-            ("APP", "CLAVE"),
-            ("modo", "json"),
-            ("AZUL", ""),
-            ("FECHANIE", ""),
-        ]).await
+        tracing::debug!(endpoint = "authenticate_dni_nie", "aeat request");
+
+        // Build a one-off client that does NOT follow redirects so we can
+        // capture cookies from every hop in the redirect chain.
+        let no_redirect = Client::builder()
+            .user_agent(format!("llave-cli/{APP_VERSION}"))
+            .timeout(std::time::Duration::from_secs(190))
+            .redirect(reqwest::redirect::Policy::none())
+            .build()?;
+
+        let cookie_header = self.cookie_header();
+        let mut req = no_redirect
+            .post(&url)
+            .header("TrazasApp", &cookie_header)
+            .form(&[
+                ("NIF", nif),
+                ("FECHA", fecha),
+                ("SOPORTE", soporte),
+                ("botonAutenticacionDebil", "Continuar"),
+                ("APP", "CLAVE"),
+                ("modo", "json"),
+                ("AZUL", ""),
+                ("FECHANIE", ""),
+            ]);
+        if !cookie_header.is_empty() {
+            req = req.header(reqwest::header::COOKIE, &cookie_header);
+        }
+
+        // Follow redirects manually, capturing cookies at each hop.
+        let mut resp = req.send().await?;
+        tracing::debug!(
+            endpoint = "authenticate_dni_nie",
+            http_status = %resp.status(),
+            "initial response"
+        );
+        self.capture_cookies(&resp);
+
+        while resp.status().is_redirection() {
+            let location = resp
+                .headers()
+                .get(reqwest::header::LOCATION)
+                .and_then(|v| v.to_str().ok())
+                .unwrap_or_default()
+                .to_string();
+            if location.is_empty() {
+                break;
+            }
+
+            // Resolve relative redirects against the current URL.
+            let next_url = if location.starts_with("http") {
+                location.clone()
+            } else {
+                // Extract origin from the previous URL.
+                let base = resp.url().origin().unicode_serialization();
+                format!("{base}{location}")
+            };
+
+            tracing::debug!(
+                endpoint = "authenticate_dni_nie",
+                redirect_to = %next_url,
+                "following redirect"
+            );
+
+            let cookie_header = self.cookie_header();
+            let mut next = no_redirect.get(&next_url);
+            if !cookie_header.is_empty() {
+                next = next.header(reqwest::header::COOKIE, &cookie_header);
+            }
+            resp = next.send().await?;
+            tracing::debug!(
+                endpoint = "authenticate_dni_nie",
+                http_status = %resp.status(),
+                "redirect response"
+            );
+            self.capture_cookies(&resp);
+        }
+
+        tracing::debug!(
+            endpoint = "authenticate_dni_nie",
+            final_status = %resp.status(),
+            cookies = %self.cookie_header(),
+            "DNI/NIE auth complete (cookies captured)"
+        );
+        Ok(())
     }
 
     /// Check registration state after DNI/NIE authentication.

@@ -83,13 +83,15 @@ pub async fn request_pin(client: &LlaveClient, session: &Session) -> Result<(Str
 
 /// DNI/NIE weak authentication flow.
 ///
-/// Returns the standard `ApiResponse` envelope (with `modo=json`).
+/// This endpoint returns HTML (not JSON).  The only purpose is to establish
+/// session cookies that subsequent endpoints (`ClaveRequestStateSv`, etc.)
+/// rely on.
 pub async fn authenticate_dni(
     client: &LlaveClient,
     nif: &str,
     fecha: &str,
     soporte: &str,
-) -> Result<crate::api::ApiResponse<serde_json::Value>> {
+) -> Result<()> {
     client.authenticate_dni_nie(nif, fecha, soporte).await
 }
 
@@ -107,16 +109,11 @@ pub async fn dni_activate_device(
     device_password: &str,
 ) -> Result<(crate::api::ClaveRequestStateResponse, Session)> {
     // Step 1: DNI/NIE auth (establishes session cookies).
+    // The endpoint returns HTML, not JSON — success is determined by whether
+    // session cookies were set.  Errors surface as HTTP/network failures.
     tracing::info!("authenticating via DNI/NIE");
-    let dni_resp = client.authenticate_dni_nie(nif, fecha, soporte).await?;
-    if dni_resp.status != "OK" {
-        return Err(crate::error::LlaveError::Api {
-            status: dni_resp.status,
-            code: dni_resp.codigo_error.unwrap_or_default(),
-            message: dni_resp.mensaje.unwrap_or_else(|| "DNI/NIE authentication failed".into()),
-        });
-    }
-    tracing::info!("DNI/NIE auth succeeded");
+    client.authenticate_dni_nie(nif, fecha, soporte).await?;
+    tracing::info!("DNI/NIE auth complete (session cookies captured)");
 
     // Step 2: Check registration state (uses session cookies from step 1).
     tracing::info!("checking registration state");

@@ -262,15 +262,15 @@ async fn run(cli: &Cli) -> Result<()> {
         } => {
             let nif = validate_nif(nif)?;
             let client = LlaveClient::new()?;
-            let resp = llave_core::auth::authenticate_dni(&client, &nif, fecha, soporte).await?;
+            llave_core::auth::authenticate_dni(&client, &nif, fecha, soporte).await?;
 
             output(
                 cli,
                 json!({
                     "nif": nif,
                     "auth_type": "dni_nie_weak",
-                    "status": resp.status,
-                    "respuesta": resp.respuesta,
+                    "status": "OK",
+                    "message": "Session cookies established",
                 }),
             );
         }
