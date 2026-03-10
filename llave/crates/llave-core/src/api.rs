@@ -364,6 +364,7 @@ impl LlaveClient {
     ///
     /// Some AEAT endpoints (like ObtenerClaveMovilSMS) expect a bare POST
     /// with no Content-Type or body. Sending form-encoded data causes 902024.
+    #[allow(dead_code)]
     async fn post_empty<T: serde::de::DeserializeOwned>(
         &self,
         endpoint: &str,
@@ -870,11 +871,17 @@ impl LlaveClient {
     /// Calls ObtenerClaveMovilSMS on www12. Returns `timeStampAltaSms`,
     /// `tokenClaveMovilSms`, `horaPeticion`, and the masked `movil` number.
     ///
-    /// Uses bare POST (no form encoding) matching the Android app's Retrofit
-    /// `@POST` without `@FormUrlEncoded`.
+    /// The Android app sends a bare POST (@POST without @FormUrlEncoded),
+    /// but the server's servlet may require Content-Type for POST requests.
+    /// Send as form-encoded with sistema_operativo/version fields (same as
+    /// ClaveRequestStateSv, which works) to ensure proper Content-Type.
     pub async fn request_sms_code(&self) -> Result<ApiResponse<ObtenerSmsResponse>> {
         let url = format!("{BASE_URL_WWW12}/wlpl/MOVI-P24H/ObtenerClaveMovilSMS");
-        self.post_empty("request_sms_code", &url).await
+        self.post_form("request_sms_code", &url, &[
+            ("sistema_operativo", OS_NAME),
+            ("version_os", OS_VERSION),
+            ("version_app", APP_VERSION),
+        ]).await
     }
 
     /// Validate SMS verification code.

@@ -123,8 +123,6 @@ pub async fn dni_request_sms(
     fecha: &str,
     soporte: &str,
 ) -> Result<DniSmsPhase1> {
-    let device_id = uuid::Uuid::new_v4().to_string();
-
     // Step 1: DNI/NIE auth (establishes session cookies).
     tracing::info!("authenticating via DNI/NIE");
     client.authenticate_dni_nie(nif, fecha, soporte).await?;
@@ -135,28 +133,7 @@ pub async fn dni_request_sms(
         tracing::info!(cookie_names = ?names, "DNI/NIE auth complete — cookie jar");
     }
 
-    // Step 2: Call ClaveStartingSv on www12 to establish device context.
-    // This must happen AFTER DNI auth because www12 requires an authenticated
-    // session (otherwise it redirects to the DNI auth page).
-    tracing::info!("calling clave_starting (www12) to establish device session");
-    match client.clave_starting(&device_id, nif, "").await {
-        Ok(resp) if resp.status == "OK" => {
-            tracing::info!("clave_starting (www12) succeeded");
-        }
-        Ok(resp) => {
-            tracing::warn!(
-                status = %resp.status,
-                code = resp.codigo_error.as_deref().unwrap_or("?"),
-                message = resp.mensaje.as_deref().unwrap_or("?"),
-                "clave_starting (www12) returned non-OK (continuing anyway)"
-            );
-        }
-        Err(e) => {
-            tracing::warn!(err = %e, "clave_starting (www12) failed (continuing anyway)");
-        }
-    }
-
-    // Step 3: Check registration state (uses session cookies from step 1).
+    // Step 2: Check registration state (uses session cookies from step 1).
     tracing::info!("checking registration state");
     let state_resp = client.clave_request_state().await?;
     if state_resp.status != "OK" {
