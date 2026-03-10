@@ -262,15 +262,15 @@ async fn run(cli: &Cli) -> Result<()> {
         } => {
             let nif = validate_nif(nif)?;
             let client = LlaveClient::new()?;
-            let html = llave_core::auth::authenticate_dni(&client, &nif, fecha, soporte).await?;
+            let resp = llave_core::auth::authenticate_dni(&client, &nif, fecha, soporte).await?;
 
             output(
                 cli,
                 json!({
                     "nif": nif,
                     "auth_type": "dni_nie_weak",
-                    "response_length": html.len(),
-                    "response_html": if html.len() > 500 { &html[..500] } else { &html },
+                    "status": resp.status,
+                    "respuesta": resp.respuesta,
                 }),
             );
         }

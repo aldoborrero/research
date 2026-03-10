@@ -3,6 +3,7 @@ use reqwest::Client;
 use serde::{Deserialize, Serialize};
 
 const BASE_URL: &str = "https://www2.agenciatributaria.gob.es";
+const BASE_URL_WWW6: &str = "https://www6.agenciatributaria.gob.es";
 const BASE_URL_WWW12: &str = "https://www12.agenciatributaria.gob.es";
 
 const APP_VERSION: &str = "6.2.5";
@@ -93,6 +94,15 @@ pub struct ActivateResponse {
 #[derive(Debug, Deserialize, Serialize)]
 pub struct OperationsHistoryResponse {
     pub operaciones: Option<Vec<serde_json::Value>>,
+}
+
+/// Response from ClaveRequestStateSv (registration check after DNI auth).
+#[derive(Debug, Deserialize, Serialize)]
+pub struct ClaveRequestStateResponse {
+    pub registrado: Option<String>,
+    #[serde(rename = "nivelRegistro")]
+    pub nivel_registro: Option<String>,
+    pub telefono: Option<String>,
 }
 
 /// The Llave API client.
@@ -258,12 +268,15 @@ impl LlaveClient {
     }
 
     /// Activate device authentication.
+    ///
+    /// Uses www6 and the `ClaveActivateAuthenticationSv` endpoint, matching
+    /// the Android app's behaviour.
     pub async fn activate_authentication(
         &self,
         device_password: &str,
         token_push: &str,
     ) -> Result<ApiResponse<ActivateResponse>> {
-        let url = format!("{BASE_URL_WWW12}/wlpl/MOVI-P24H/LlaveActivateAuthenticationSv");
+        let url = format!("{BASE_URL_WWW6}/wlpl/MOVI-P24H/ClaveActivateAuthenticationSv");
         self.post_form("activate_authentication", &url, &[
             ("sistema_operativo", OS_NAME),
             ("version_os", OS_VERSION),
@@ -291,36 +304,41 @@ impl LlaveClient {
     }
 
     /// Authenticate with DNI/NIE + date of birth (weak auth).
+    ///
+    /// Sends `modo=json` so the server returns a JSON envelope instead of HTML.
     pub async fn authenticate_dni_nie(
         &self,
         nif: &str,
         fecha: &str,
         soporte: &str,
-    ) -> Result<String> {
+    ) -> Result<ApiResponse<serde_json::Value>> {
         let url = format!(
             "{BASE_URL}/wlpl/BUCV-JDIT/AutenticaDniNieContrasteh?ref=%2Fwlpl%2FMOVI-AEAT%2FAccesoW12Sv"
         );
-        tracing::debug!(endpoint = "authenticate_dni_nie", "aeat request");
-        let resp = self
-            .client
-            .post(&url)
-            .header("TrazasApp", &self.trace_id)
-            .form(&[
-                ("NIF", nif),
-                ("FECHA", fecha),
-                ("SOPORTE", soporte),
-                ("botonAutenticacionDebil", "Acceder"),
-                ("APP", "CLAVE"),
-                ("modo", ""),
-                ("AZUL", ""),
-                ("FECHANIE", ""),
-            ])
-            .send()
-            .await?;
+        self.post_form("authenticate_dni_nie", &url, &[
+            ("NIF", nif),
+            ("FECHA", fecha),
+            ("SOPORTE", soporte),
+            ("botonAutenticacionDebil", "Continuar"),
+            ("APP", "CLAVE"),
+            ("modo", "json"),
+            ("AZUL", ""),
+            ("FECHANIE", ""),
+        ]).await
+    }
 
-        let status = resp.status();
-        tracing::debug!(endpoint = "authenticate_dni_nie", http_status = %status, "aeat response");
-        Ok(resp.text().await?)
+    /// Check registration state after DNI/NIE authentication.
+    ///
+    /// This is the intermediate step between DNI auth and device activation.
+    /// Only sends device metadata (no device_id or NIF) — the server uses
+    /// the session cookie established by `authenticate_dni_nie`.
+    pub async fn clave_request_state(&self) -> Result<ApiResponse<ClaveRequestStateResponse>> {
+        let url = format!("{BASE_URL_WWW12}/wlpl/MOVI-P24H/ClaveRequestStateSv");
+        self.post_form("clave_request_state", &url, &[
+            ("sistema_operativo", OS_NAME),
+            ("version_os", OS_VERSION),
+            ("version_app", APP_VERSION),
+        ]).await
     }
 
     /// Get pending operations for polling.

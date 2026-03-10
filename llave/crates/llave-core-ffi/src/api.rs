@@ -392,6 +392,11 @@ pub fn validate_nif(nif: String) -> Result<String, String> {
 /// Authenticate using DNI/NIE weak authentication (no certificate needed)
 /// and then activate the device so that a full session is available.
 ///
+/// Follows the Android app's flow:
+/// 1. `AutenticaDniNieContrasteh` with `modo=json` (proves identity on www2)
+/// 2. `ClaveRequestStateSv` (registration check on www12)
+/// 3. `ClaveActivateAuthenticationSv` (device activation on www6)
+///
 /// Requires the NIF, the expiry date of the physical DNI card (DD/MM/YYYY),
 /// and the support number printed on the card.
 #[frb]
@@ -402,43 +407,37 @@ pub async fn dni_authenticate(
 ) -> Result<FfiApiResult, String> {
     let nif = llave_core::config::validate_nif(&nif).map_err(|e| e.to_string())?;
     let client = llave_core::LlaveClient::new().map_err(|e| e.to_string())?;
-
-    // Step 1: Authenticate via DNI/NIE (proves identity).
-    let html = match llave_core::auth::authenticate_dni(&client, &nif, &fecha, &soporte).await {
-        Ok(html) => html,
-        Err(e) => {
-            return Ok(FfiApiResult {
-                ok: false,
-                data: String::new(),
-                error: Some(e.to_string()),
-            });
-        }
-    };
-
-    // Step 2: Activate the device so a session is persisted.
-    let device_id = uuid::Uuid::new_v4().to_string();
     let device_password = uuid::Uuid::new_v4().to_string();
 
-    match llave_core::auth::activate_device(&client, &nif, &device_id, &device_password).await {
-        Ok(session) => {
+    match llave_core::auth::dni_activate_device(&client, &nif, &fecha, &soporte, &device_password)
+        .await
+    {
+        Ok((state, session)) => {
             if let Ok(mut cfg) = llave_core::Config::load() {
                 cfg.nif = Some(nif.clone());
-                cfg.device_id = Some(device_id);
+                cfg.device_id = Some(session.device_id.clone());
                 let _ = cfg.save();
             }
             tracing::info!(nif = %session.nif, "DNI/NIE auth + device activation succeeded");
             Ok(FfiApiResult {
                 ok: true,
-                data: html,
+                data: serde_json::to_string(&serde_json::json!({
+                    "device_id": session.device_id,
+                    "nif": session.nif,
+                    "registrado": state.registrado,
+                    "nivel_registro": state.nivel_registro,
+                    "telefono": state.telefono,
+                }))
+                .unwrap_or_default(),
                 error: None,
             })
         }
         Err(e) => {
-            tracing::warn!(err = %e, "DNI/NIE auth succeeded but device activation failed");
+            tracing::warn!(err = %e, "DNI/NIE auth + activation failed");
             Ok(FfiApiResult {
                 ok: false,
-                data: html,
-                error: Some(format!("Authentication succeeded but device activation failed: {e}")),
+                data: String::new(),
+                error: Some(e.to_string()),
             })
         }
     }

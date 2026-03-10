@@ -82,13 +82,93 @@ pub async fn request_pin(client: &LlaveClient, session: &Session) -> Result<(Str
 }
 
 /// DNI/NIE weak authentication flow.
+///
+/// Returns the standard `ApiResponse` envelope (with `modo=json`).
 pub async fn authenticate_dni(
     client: &LlaveClient,
     nif: &str,
     fecha: &str,
     soporte: &str,
-) -> Result<String> {
+) -> Result<crate::api::ApiResponse<serde_json::Value>> {
     client.authenticate_dni_nie(nif, fecha, soporte).await
+}
+
+/// DNI/NIE authentication + device activation (full flow).
+///
+/// Matches the Android app's sequence:
+/// 1. `AutenticaDniNieContrasteh` (DNI/NIE weak auth on www2)
+/// 2. `ClaveRequestStateSv` (registration check on www12)
+/// 3. `ClaveActivateAuthenticationSv` (device activation on www6)
+pub async fn dni_activate_device(
+    client: &LlaveClient,
+    nif: &str,
+    fecha: &str,
+    soporte: &str,
+    device_password: &str,
+) -> Result<(crate::api::ClaveRequestStateResponse, Session)> {
+    // Step 1: DNI/NIE auth (establishes session cookies).
+    tracing::info!("authenticating via DNI/NIE");
+    let dni_resp = client.authenticate_dni_nie(nif, fecha, soporte).await?;
+    if dni_resp.status != "OK" {
+        return Err(crate::error::LlaveError::Api {
+            status: dni_resp.status,
+            code: dni_resp.codigo_error.unwrap_or_default(),
+            message: dni_resp.mensaje.unwrap_or_else(|| "DNI/NIE authentication failed".into()),
+        });
+    }
+    tracing::info!("DNI/NIE auth succeeded");
+
+    // Step 2: Check registration state (uses session cookies from step 1).
+    tracing::info!("checking registration state");
+    let state_resp = client.clave_request_state().await?;
+    if state_resp.status != "OK" {
+        return Err(crate::error::LlaveError::Api {
+            status: state_resp.status,
+            code: state_resp.codigo_error.unwrap_or_default(),
+            message: state_resp.mensaje.unwrap_or_else(|| "Registration state check failed".into()),
+        });
+    }
+    let state = state_resp.respuesta.ok_or_else(|| crate::error::LlaveError::Api {
+        status: "OK".into(),
+        code: String::new(),
+        message: "Empty ClaveRequestState response".into(),
+    })?;
+    tracing::info!(
+        registrado = state.registrado.as_deref().unwrap_or("?"),
+        telefono = state.telefono.as_deref().unwrap_or("?"),
+        nivel = state.nivel_registro.as_deref().unwrap_or("?"),
+        "registration state"
+    );
+
+    // Step 3: Activate device (uses session cookies from steps 1+2).
+    tracing::info!("activating device");
+    let activate_resp = client.activate_authentication(device_password, "").await?;
+    if activate_resp.status != "OK" {
+        return Err(crate::error::LlaveError::Api {
+            status: activate_resp.status,
+            code: activate_resp.codigo_error.unwrap_or_default(),
+            message: activate_resp.mensaje.unwrap_or_else(|| "Device activation failed".into()),
+        });
+    }
+
+    let activate_data = activate_resp.respuesta.ok_or_else(|| crate::error::LlaveError::Api {
+        status: "OK".into(),
+        code: String::new(),
+        message: "Empty activation response".into(),
+    })?;
+
+    let device_id = activate_data.device_id.unwrap_or_default();
+    let session = Session {
+        device_id,
+        nif: nif.to_string(),
+        device_password: device_password.to_string(),
+        firebase_token: None,
+        created_at: chrono::Utc::now().to_rfc3339(),
+    };
+    session.save()?;
+    tracing::info!("device activated via DNI/NIE flow");
+
+    Ok((state, session))
 }
 
 /// Poll for pending authentication requests (single poll).
