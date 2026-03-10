@@ -352,6 +352,11 @@ pub async fn dni_activate_device(
 }
 
 /// Poll for pending authentication requests (single poll).
+///
+/// Uses `ClaveRequestAllOperationsSv` on www2 which only needs device
+/// credentials.  The previous approach tried `ClaveRequestStateSv` on www12
+/// first, but that endpoint requires a prior DNI auth session — without it
+/// the server redirects to the login page and we get HTML instead of JSON.
 pub async fn poll_pending_requests(
     client: &LlaveClient,
     session: &Session,
@@ -359,26 +364,6 @@ pub async fn poll_pending_requests(
     let _starting = client
         .clave_starting(&session.device_id, &session.nif, "")
         .await?;
-
-    let state = client
-        .request_state(
-            &session.device_id,
-            &session.device_password,
-            &session.nif,
-        )
-        .await?;
-
-    if state.status == "OK" {
-        if let Some(ref resp) = state.respuesta {
-            if !resp.is_null() {
-                return Ok(serde_json::json!({
-                    "source": "request_state",
-                    "status": state.status,
-                    "data": resp,
-                }));
-            }
-        }
-    }
 
     let timestamp = chrono::Utc::now().timestamp().to_string();
     let operations = client
