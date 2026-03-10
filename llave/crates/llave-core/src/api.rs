@@ -375,8 +375,8 @@ impl LlaveClient {
     /// Activate device authentication.
     ///
     /// The Android app uses www6 (WebView flow) or www1 (NFC cert flow).
-    /// Since our DNI auth session is on www2/www12, we try www2 first
-    /// (same host as all other MOVI-P24H endpoints), falling back to www6.
+    /// Since our DNI auth session is on www2/www12, we try www12 first,
+    /// then www6, logging the result at each step.
     pub async fn activate_authentication(
         &self,
         device_password: &str,
@@ -391,13 +391,13 @@ impl LlaveClient {
             ("modelo", DEVICE_MODEL),
         ];
 
-        // Try www2 first (where our DNI auth session lives).
-        let url_www2 = format!("{BASE_URL}/wlpl/MOVI-P24H/ClaveActivateAuthenticationSv");
-        tracing::info!("trying activation on www2");
-        match self.post_form::<ActivateResponse>("activate_authentication", &url_www2, form).await {
+        // Try www12 first (where our DNI auth session is valid).
+        let url_www12 = format!("{BASE_URL_WWW12}/wlpl/MOVI-P24H/ClaveActivateAuthenticationSv");
+        tracing::info!("trying activation on www12");
+        match self.post_form::<ActivateResponse>("activate_authentication", &url_www12, form).await {
             Ok(resp) => return Ok(resp),
             Err(e) => {
-                tracing::info!(err = %e, "www2 activation failed, trying www6");
+                tracing::info!(err = %e, "www12 activation failed, trying www6");
             }
         }
 
