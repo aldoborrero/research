@@ -83,19 +83,7 @@ pub struct AuthenticateResponse {
     pub pending_requests: Option<String>,
 }
 
-/// Response from LlaveCheckMyDataSv (legacy Llave endpoint).
-#[derive(Debug, Deserialize, Serialize)]
-pub struct CheckMyDataResponse {
-    pub nombre: Option<String>,
-    pub nif: Option<String>,
-    pub telefono: Option<String>,
-    #[serde(rename = "nivelAcceso")]
-    pub nivel_acceso: Option<String>,
-    #[serde(rename = "fechaCaducidad")]
-    pub fecha_caducidad: Option<String>,
-}
-
-/// Response from ClaveCheckMyDataSv (Clave endpoint — the one the Android app uses).
+/// Response from ClaveCheckMyDataSv.
 ///
 /// The `respuesta` contains `email`, `numTelefono`, and `nivelRegistro`.
 #[derive(Debug, Deserialize, Serialize)]
@@ -450,30 +438,7 @@ impl LlaveClient {
         })
     }
 
-    /// Initialize a session with the Llave backend (www2 endpoint).
-    pub async fn starting(
-        &self,
-        device_id: &str,
-        nif: &str,
-        token_push: &str,
-    ) -> Result<ApiResponse<StartingResponse>> {
-        let url = format!("{BASE_URL}/wlpl/MOVI-P24H/LlaveStartingSv");
-        self.post_form("starting", &url, &[
-                ("device_id", device_id),
-                ("NIF", nif),
-                ("sistema_operativo", OS_NAME),
-                ("token_push", token_push),
-                ("version_os", OS_VERSION),
-                ("version_app", APP_VERSION),
-                ("modelo", DEVICE_MODEL),
-            ]).await
-    }
-
     /// Initialize a session via ClaveStartingSv on www2.
-    ///
-    /// The Android app calls ClaveStartingSv (on www2) at app launch to establish
-    /// device context. This is the endpoint the real app uses (different from
-    /// LlaveStartingSv which is an older/different endpoint).
     pub async fn clave_starting(
         &self,
         device_id: &str,
@@ -492,27 +457,7 @@ impl LlaveClient {
             ]).await
     }
 
-    /// Check if a NIF is activated in Llave.
-    pub async fn is_nif_activated(
-        &self,
-        device_id: &str,
-        nif: &str,
-    ) -> Result<ApiResponse<IsNifActivatedResponse>> {
-        let url = format!("{BASE_URL}/wlpl/MOVI-P24H/LlaveIsNifActivatedSv");
-        self.post_form("is_nif_activated", &url, &[
-            ("device_id", device_id),
-            ("NIF", nif),
-            ("sistema_operativo", OS_NAME),
-            ("version_os", OS_VERSION),
-            ("version_app", APP_VERSION),
-        ]).await
-    }
-
     /// Check if a NIF is activated in Clave (www2 endpoint).
-    ///
-    /// The Android app calls this before `ClaveCheckMyDataSv` to verify the
-    /// device is still active. Same parameters as `LlaveIsNifActivatedSv` but
-    /// uses the Clave endpoint name.
     pub async fn clave_is_nif_activated(
         &self,
         device_id: &str,
@@ -612,22 +557,6 @@ impl LlaveClient {
             ("version_app", APP_VERSION),
             ("tokenClaveMovil", token_clave_movil),
             ("codigoIdP", codigo_idp),
-        ]).await
-    }
-
-    /// Check user account data.
-    pub async fn check_my_data(
-        &self,
-        device_id: &str,
-        nif: &str,
-    ) -> Result<ApiResponse<CheckMyDataResponse>> {
-        let url = format!("{BASE_URL}/wlpl/MOVI-P24H/LlaveCheckMyDataSv");
-        self.post_form("check_my_data", &url, &[
-            ("device_id", device_id),
-            ("NIF", nif),
-            ("sistema_operativo", OS_NAME),
-            ("version_os", OS_VERSION),
-            ("version_app", APP_VERSION),
         ]).await
     }
 
