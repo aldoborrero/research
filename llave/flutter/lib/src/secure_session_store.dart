@@ -1,17 +1,13 @@
-import 'dart:io';
-
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 /// Persists session JSON in the platform's native secure storage.
 ///
 /// - **Android**: AES-256 via Android Keystore (`EncryptedSharedPreferences`)
 /// - **iOS**: Keychain Services
-/// - **Linux**: No-op — the Rust core uses its own [`KeyringStorage`] which
-///   persists directly to the OS secret store (GNOME Keyring / KDE Wallet).
+/// - **Linux**: libsecret (GNOME Keyring / KDE Wallet)
 ///
-/// The Rust core keeps the session in-memory on mobile ([`MemoryStorage`]);
-/// this class is the durable backing store that Flutter owns on those
-/// platforms only.
+/// The FFI layer always uses in-memory storage ([`MemoryStorage`]); this
+/// class is the durable backing store that Flutter owns on all platforms.
 class SecureSessionStore {
   static const _key = 'llave_session';
   static const _storage = FlutterSecureStorage(
@@ -20,9 +16,9 @@ class SecureSessionStore {
 
   /// Whether Flutter should handle session persistence.
   ///
-  /// On Linux desktop, Rust's KeyringStorage handles persistence directly,
-  /// so Flutter storage operations are skipped.
-  static bool get _rustOwnsPersistence => Platform.isLinux;
+  /// The FFI layer always uses MemoryStorage, so Flutter must persist on
+  /// every platform. (Only the standalone CLI binary uses KeyringStorage.)
+  static bool get _rustOwnsPersistence => false;
 
   /// Read the saved session JSON, or `null` if none exists.
   static Future<String?> read() async {
