@@ -1,6 +1,7 @@
 use crate::error::{LlaveError, Result};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
+use std::sync::Mutex;
 
 const BASE_URL: &str = "https://www2.agenciatributaria.gob.es";
 const BASE_URL_WWW6: &str = "https://www6.agenciatributaria.gob.es";
@@ -106,15 +107,23 @@ pub struct ClaveRequestStateResponse {
 }
 
 /// The Llave API client.
+///
+/// Manages cookies manually across all `*.agenciatributaria.gob.es` subdomains,
+/// matching the Android app's `CookiePolicy.ACCEPT_ALL` + `setCookiesInJar()`.
+/// Reqwest's built-in cookie store follows RFC domain-matching rules which
+/// prevents cookies set by `www2` from being sent to `www6` or `www12`.
 pub struct LlaveClient {
     client: Client,
     trace_id: String,
+    /// All cookies collected from responses, forwarded to every request.
+    cookies: Mutex<Vec<(String, String)>>,
 }
 
 impl LlaveClient {
     pub fn new() -> Result<Self> {
+        // Do NOT use cookie_store(true) — we manage cookies manually to
+        // propagate them across subdomains (www2 ↔ www12 ↔ www6).
         let client = Client::builder()
-            .cookie_store(true)
             .user_agent(format!("llave-cli/{APP_VERSION}"))
             .timeout(std::time::Duration::from_secs(190))
             .build()?;
@@ -122,7 +131,36 @@ impl LlaveClient {
         let trace_id = uuid::Uuid::new_v4().to_string();
         tracing::debug!(trace_id = %trace_id, "client created");
 
-        Ok(Self { client, trace_id })
+        Ok(Self {
+            client,
+            trace_id,
+            cookies: Mutex::new(Vec::new()),
+        })
+    }
+
+    /// Build the `Cookie` header value from all stored cookies.
+    fn cookie_header(&self) -> String {
+        let cookies = self.cookies.lock().unwrap();
+        cookies
+            .iter()
+            .map(|(k, v)| format!("{k}={v}"))
+            .collect::<Vec<_>>()
+            .join("; ")
+    }
+
+    /// Capture `Set-Cookie` headers from a response and store them.
+    fn capture_cookies(&self, resp: &reqwest::Response) {
+        let mut cookies = self.cookies.lock().unwrap();
+        for cookie in resp.cookies() {
+            let name = cookie.name().to_string();
+            let value = cookie.value().to_string();
+            // Update existing cookie or add new one.
+            if let Some(existing) = cookies.iter_mut().find(|(k, _)| k == &name) {
+                existing.1 = value;
+            } else {
+                cookies.push((name, value));
+            }
+        }
     }
 
     async fn post_form<T: serde::de::DeserializeOwned>(
@@ -132,15 +170,23 @@ impl LlaveClient {
         form: &[(&str, &str)],
     ) -> Result<ApiResponse<T>> {
         tracing::debug!(endpoint = endpoint, "aeat request");
-        let resp = self
+
+        let cookie_header = self.cookie_header();
+        let mut req = self
             .client
             .post(url)
             .header("TrazasApp", &self.trace_id)
-            .form(form)
-            .send()
-            .await?;
+            .form(form);
+        if !cookie_header.is_empty() {
+            req = req.header(reqwest::header::COOKIE, &cookie_header);
+        }
+
+        let resp = req.send().await?;
         let http_status = resp.status();
         tracing::debug!(endpoint = endpoint, http_status = %http_status, "aeat response");
+
+        // Capture cookies before consuming the response body.
+        self.capture_cookies(&resp);
 
         let body = resp.text().await?;
         tracing::debug!(endpoint = endpoint, body_len = body.len(), body_preview = %&body[..body.len().min(512)], "aeat response body");
@@ -388,9 +434,15 @@ impl LlaveClient {
     pub async fn get_llave_movil(&self) -> Result<ApiResponse<serde_json::Value>> {
         let url = format!("{BASE_URL_WWW12}/wlpl/MOVI-P24H/ObtenerClaveMovil");
         tracing::debug!(endpoint = "get_llave_movil", "aeat request");
-        let resp = self.client.get(&url).send().await?;
+        let cookie_header = self.cookie_header();
+        let mut req = self.client.get(&url);
+        if !cookie_header.is_empty() {
+            req = req.header(reqwest::header::COOKIE, &cookie_header);
+        }
+        let resp = req.send().await?;
         let status = resp.status();
         tracing::debug!(endpoint = "get_llave_movil", http_status = %status, "aeat response");
+        self.capture_cookies(&resp);
         Ok(resp.json().await?)
     }
 
