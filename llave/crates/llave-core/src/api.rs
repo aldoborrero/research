@@ -191,6 +191,20 @@ impl LlaveClient {
         let body = resp.text().await?;
         tracing::debug!(endpoint = endpoint, body_len = body.len(), body_preview = %&body[..body.len().min(512)], "aeat response body");
 
+        // Detect HTML responses early — the server returns the login page
+        // when session cookies are missing or expired.
+        let trimmed = body.trim_start();
+        if trimmed.starts_with("<!DOCTYPE") || trimmed.starts_with("<html") {
+            tracing::error!(
+                endpoint = endpoint,
+                body_preview = %&body[..body.len().min(512)],
+                "server returned HTML instead of JSON — session likely invalid"
+            );
+            return Err(LlaveError::HtmlResponse {
+                endpoint: endpoint.to_string(),
+            });
+        }
+
         serde_json::from_str::<ApiResponse<T>>(&body).map_err(|e| {
             tracing::error!(
                 endpoint = endpoint,
@@ -404,6 +418,7 @@ impl LlaveClient {
         );
         self.capture_cookies(&resp);
 
+        let mut redirect_count = 0u32;
         while resp.status().is_redirection() {
             let location = resp
                 .headers()
@@ -436,17 +451,32 @@ impl LlaveClient {
                 next = next.header(reqwest::header::COOKIE, &cookie_header);
             }
             resp = next.send().await?;
+            redirect_count += 1;
             tracing::debug!(
                 endpoint = "authenticate_dni_nie",
                 http_status = %resp.status(),
+                redirect_count = redirect_count,
                 "redirect response"
             );
             self.capture_cookies(&resp);
         }
 
+        // A successful DNI/NIE auth produces at least one redirect.
+        // If we got 0 redirects, the server returned the login form again,
+        // which means the credentials were rejected.
+        if redirect_count == 0 {
+            tracing::warn!(
+                endpoint = "authenticate_dni_nie",
+                http_status = %resp.status(),
+                "no redirects — DNI/NIE auth likely failed (bad credentials)"
+            );
+            return Err(LlaveError::DniAuthFailed);
+        }
+
         tracing::debug!(
             endpoint = "authenticate_dni_nie",
             final_status = %resp.status(),
+            redirect_count = redirect_count,
             cookies = %self.cookie_header(),
             "DNI/NIE auth complete (cookies captured)"
         );
