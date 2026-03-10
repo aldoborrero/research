@@ -45,6 +45,15 @@ class SettingsScreen extends ConsumerWidget {
             onTap: () => _showThemePicker(context, ref),
           ),
           const Divider(),
+          _SectionHeader('Security'),
+          ListTile(
+            leading: const Icon(Icons.pin_outlined),
+            title: const Text('Change PIN'),
+            subtitle: const Text('Update your unlock PIN'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => _showChangePinDialog(context, ref),
+          ),
+          const Divider(),
           _SectionHeader('Device'),
           ListTile(
             leading: Icon(Icons.logout, color: theme.colorScheme.error),
@@ -131,6 +140,100 @@ class SettingsScreen extends ConsumerWidget {
         ThemeMode.light => 'Light',
         ThemeMode.dark => 'Dark',
       };
+
+  void _showChangePinDialog(BuildContext context, WidgetRef ref) {
+    final oldPinCtrl = TextEditingController();
+    final newPinCtrl = TextEditingController();
+    final confirmCtrl = TextEditingController();
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Change PIN'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: oldPinCtrl,
+              obscureText: true,
+              keyboardType: TextInputType.number,
+              decoration: const InputDecoration(
+                labelText: 'Current PIN',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: newPinCtrl,
+              obscureText: true,
+              keyboardType: TextInputType.number,
+              decoration: const InputDecoration(
+                labelText: 'New PIN',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: confirmCtrl,
+              obscureText: true,
+              keyboardType: TextInputType.number,
+              decoration: const InputDecoration(
+                labelText: 'Confirm New PIN',
+                border: OutlineInputBorder(),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () async {
+              final oldPin = oldPinCtrl.text;
+              final newPin = newPinCtrl.text;
+              final confirm = confirmCtrl.text;
+
+              if (newPin.length < 4) {
+                if (ctx.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('PIN must be at least 4 characters')),
+                  );
+                }
+                return;
+              }
+              if (newPin != confirm) {
+                if (ctx.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('New PINs do not match')),
+                  );
+                }
+                return;
+              }
+
+              Navigator.pop(ctx);
+              try {
+                await ref.read(authProvider.notifier).changePin(oldPin, newPin);
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('PIN changed successfully')),
+                  );
+                }
+              } catch (e) {
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Failed to change PIN: $e')),
+                  );
+                }
+              }
+            },
+            child: const Text('Change'),
+          ),
+        ],
+      ),
+    );
+  }
 
   void _showThemePicker(BuildContext context, WidgetRef ref) {
     final notifier = ref.read(themeModeProvider.notifier);

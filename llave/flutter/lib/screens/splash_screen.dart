@@ -49,6 +49,8 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
       final auth = ref.read(authProvider);
       if (auth is AuthAuthenticated) {
         context.go('/');
+      } else if (auth is AuthLocked) {
+        context.go('/unlock');
       } else {
         context.go('/activate');
       }

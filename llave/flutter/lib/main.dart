@@ -16,6 +16,8 @@ import 'screens/pending_screen.dart';
 import 'screens/history_screen.dart';
 import 'screens/settings_screen.dart';
 import 'screens/splash_screen.dart';
+import 'screens/unlock_screen.dart';
+import 'screens/set_pin_screen.dart';
 import 'screens/dev_screen.dart';
 import 'screens/dni_auth_screen.dart';
 import 'screens/mydata_screen.dart';
@@ -46,11 +48,14 @@ Future<void> main() async {
   runApp(const ProviderScope(child: LlaveApp()));
 }
 
-/// Routes that require an active session.
+/// Routes that require an active (decrypted) session.
 const _protectedRoutes = {'/', '/pin', '/pending', '/history', '/settings', '/qr'};
 
 /// Routes that should not be accessible when already authenticated.
 const _guestOnlyRoutes = {'/activate', '/dni-auth'};
+
+/// Routes with their own navigation logic (never redirect away from them).
+const _selfManagedRoutes = {'/splash', '/unlock', '/set-pin'};
 
 /// Riverpod provider for the app router.
 ///
@@ -68,10 +73,18 @@ final routerProvider = Provider<GoRouter>((ref) {
       final auth = ref.read(authProvider);
       final location = state.uri.path;
 
-      // Never redirect away from splash — it handles its own navigation.
-      if (location == '/splash') return null;
+      // Never redirect away from self-managed routes.
+      if (_selfManagedRoutes.contains(location)) return null;
 
       final isAuthenticated = auth is AuthAuthenticated;
+      final isLocked = auth is AuthLocked;
+      final needsPin = auth is AuthNeedsPin;
+
+      // Encrypted session on disk — force PIN entry.
+      if (isLocked && location != '/unlock') return '/unlock';
+
+      // Just activated — force PIN setup.
+      if (needsPin && location != '/set-pin') return '/set-pin';
 
       // Redirect unauthenticated users away from protected routes.
       if (!isAuthenticated && _protectedRoutes.contains(location)) {
@@ -87,6 +100,8 @@ final routerProvider = Provider<GoRouter>((ref) {
     },
     routes: [
       GoRoute(path: '/splash', builder: (_, __) => const SplashScreen()),
+      GoRoute(path: '/unlock', builder: (_, __) => const UnlockScreen()),
+      GoRoute(path: '/set-pin', builder: (_, __) => const SetPinScreen()),
       GoRoute(path: '/activate', builder: (_, __) => const ActivateScreen()),
       GoRoute(path: '/dni-auth', builder: (_, __) => const DniAuthScreen()),
       ShellRoute(

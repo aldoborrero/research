@@ -19,8 +19,11 @@ urlencoding = { workspace = true }
 dirs = { workspace = true }
 keyring = { workspace = true }
 aes = { workspace = true }
+aes-gcm = { workspace = true }
+argon2 = { workspace = true }
 cbc = { workspace = true }
 pbkdf2 = { workspace = true }
+rand = { workspace = true }
 sha1 = { workspace = true }
 hmac = { workspace = true }
 tokio-util = { workspace = true }

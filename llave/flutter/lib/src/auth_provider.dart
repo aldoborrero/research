@@ -19,6 +19,16 @@ class AuthUnauthenticated extends AuthState {
   const AuthUnauthenticated();
 }
 
+/// Session exists on disk but is encrypted — user must enter PIN.
+class AuthLocked extends AuthState {
+  const AuthLocked();
+}
+
+/// Session needs a PIN to be set (right after activation).
+class AuthNeedsPin extends AuthState {
+  const AuthNeedsPin();
+}
+
 class AuthAuthenticated extends AuthState {
   final LlaveSession session;
   const AuthAuthenticated(this.session);
@@ -35,14 +45,71 @@ class AuthNotifier extends StateNotifier<AuthState> {
 
   AuthNotifier(this._bridge) : super(const AuthLoading());
 
-  /// Initialise the Rust core and restore a persisted session.
+  /// Initialise the Rust core and check for a persisted session.
   ///
-  /// Must be called once before any other bridge interaction.
+  /// If an encrypted blob exists, transitions to [AuthLocked] so the
+  /// user can enter their PIN. Otherwise, [AuthUnauthenticated].
   Future<void> init() async {
     _log.info('initialising core');
-    final savedJson = await SecureSessionStore.read();
-    await _bridge.initCore(savedJson);
-    checkSession();
+    // Init Rust core without session data — we'll load it after PIN entry.
+    await _bridge.initCore(null);
+
+    final sealed = await SecureSessionStore.read();
+    if (sealed != null && sealed.isNotEmpty) {
+      _log.info('encrypted session found — waiting for PIN');
+      state = const AuthLocked();
+    } else {
+      _log.info('no session');
+      state = const AuthUnauthenticated();
+    }
+  }
+
+  /// Unlock an encrypted session with the user's PIN.
+  ///
+  /// Reads the sealed blob from secure storage, decrypts it in Rust,
+  /// and transitions to [AuthAuthenticated] on success.
+  Future<void> unlock(String pin) async {
+    state = const AuthLoading();
+    try {
+      final sealed = await SecureSessionStore.read();
+      if (sealed == null || sealed.isEmpty) {
+        state = const AuthUnauthenticated();
+        return;
+      }
+      _bridge.decryptAndLoadSession(sealed, pin);
+      checkSession();
+    } catch (e) {
+      _log.warning('unlock failed: $e');
+      // Return to locked so the user can retry.
+      state = const AuthLocked();
+      rethrow;
+    }
+  }
+
+  /// Encrypt the current session with a PIN and persist the sealed blob.
+  ///
+  /// Called after activation when the user sets their PIN for the first time.
+  Future<void> setPin(String pin) async {
+    try {
+      final sealed = _bridge.encryptSession(pin);
+      await SecureSessionStore.write(sealed);
+      _log.info('session encrypted and persisted');
+      checkSession();
+    } catch (e) {
+      _log.severe('setPin failed: $e');
+      state = AuthError(e.toString());
+    }
+  }
+
+  /// Change the PIN protecting the session.
+  Future<void> changePin(String oldPin, String newPin) async {
+    final sealed = await SecureSessionStore.read();
+    if (sealed == null || sealed.isEmpty) {
+      throw StateError('No encrypted session to re-key');
+    }
+    final newSealed = _bridge.changeSessionPin(sealed, oldPin, newPin);
+    await SecureSessionStore.write(newSealed);
+    _log.info('PIN changed');
   }
 
   /// Check if a session already exists (called on startup).
@@ -65,18 +132,14 @@ class AuthNotifier extends StateNotifier<AuthState> {
     }
   }
 
-  /// Activate device and transition to authenticated state.
+  /// Activate device and transition to [AuthNeedsPin] so the user sets a PIN.
   Future<void> activate(String nif, String? password) async {
     _log.info('activating device');
     state = const AuthLoading();
     try {
-      final session = await _bridge.activateDevice(nif, password);
-      final json = _bridge.exportSession();
-      if (json != null) {
-        await SecureSessionStore.write(json);
-      }
-      _log.info('device activated');
-      state = AuthAuthenticated(session);
+      await _bridge.activateDevice(nif, password);
+      _log.info('device activated — prompting for PIN setup');
+      state = const AuthNeedsPin();
     } catch (e) {
       _log.severe('activation failed: $e');
       state = AuthError(e.toString());
@@ -84,10 +147,6 @@ class AuthNotifier extends StateNotifier<AuthState> {
   }
 
   /// Phase 1: DNI/NIE auth → registration check → request SMS code.
-  ///
-  /// Returns SMS metadata (masked phone, tokens, cookies) on success.
-  /// The caller should display the phone number and collect the SMS PIN,
-  /// then call [dniCompleteActivation].
   Future<LlaveApiResult> dniAuthenticate(
       String nif, String fecha, String soporte) async {
     _log.info('authenticating via DNI/NIE (phase 1: request SMS)');
@@ -96,7 +155,6 @@ class AuthNotifier extends StateNotifier<AuthState> {
       final result = await _bridge.dniAuthenticate(nif, fecha, soporte);
       if (result.ok) {
         _log.info('DNI/NIE auth succeeded — SMS sent');
-        // Don't transition to authenticated yet — SMS validation still needed.
         state = const AuthUnauthenticated();
       } else {
         _log.warning('DNI/NIE auth failed: ${result.error}');
@@ -110,7 +168,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
     }
   }
 
-  /// Phase 2: Validate SMS code + activate device.
+  /// Phase 2: Validate SMS code + activate device → prompt for PIN setup.
   Future<LlaveApiResult> dniCompleteActivation(
       String nif,
       String cookiesJson,
@@ -123,12 +181,8 @@ class AuthNotifier extends StateNotifier<AuthState> {
       final result = await _bridge.dniCompleteActivation(
           nif, cookiesJson, timestampAltaSms, tokenClaveMovilSms, smsPin);
       if (result.ok) {
-        checkSession();
-        final json = _bridge.exportSession();
-        if (json != null) {
-          await SecureSessionStore.write(json);
-        }
-        _log.info('DNI/NIE + SMS activation succeeded');
+        _log.info('DNI/NIE + SMS activation succeeded — prompting for PIN setup');
+        state = const AuthNeedsPin();
       } else {
         _log.warning('DNI/NIE activation failed: ${result.error}');
         state = AuthError(result.error ?? 'Activation failed');

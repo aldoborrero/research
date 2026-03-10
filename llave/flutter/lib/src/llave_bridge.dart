@@ -108,6 +108,15 @@ abstract class LlaveBridge {
       String timestampAltaSms, String tokenClaveMovilSms, String smsPin);
   bool logout();
   String validateNif(String nif);
+
+  /// Encrypt the current in-memory session with a PIN.
+  String encryptSession(String pin);
+
+  /// Decrypt a sealed blob and load the session into Rust core.
+  bool decryptAndLoadSession(String sealed, String pin);
+
+  /// Re-encrypt the session with a new PIN (requires old PIN).
+  String changeSessionPin(String sealed, String oldPin, String newPin);
 }
 
 /// Mock implementation that simulates the Rust bridge for UI development.
@@ -275,6 +284,24 @@ class MockLlaveBridge implements LlaveBridge {
     return trimmed;
   }
 
+  @override
+  String encryptSession(String pin) => 'mock_sealed_blob';
+
+  @override
+  bool decryptAndLoadSession(String sealed, String pin) {
+    if (pin.length < 4) throw ArgumentError('Wrong PIN');
+    _session = LlaveSession(
+      deviceId: 'mock-device',
+      nif: 'mock-nif',
+      createdAt: DateTime.now().toIso8601String(),
+    );
+    return true;
+  }
+
+  @override
+  String changeSessionPin(String sealed, String oldPin, String newPin) =>
+      'mock_resealed_blob';
+
   void _requireSession() {
     if (_session == null) {
       throw StateError('No active session. Activate device first.');
@@ -403,6 +430,17 @@ class RealLlaveBridge implements LlaveBridge {
 
   @override
   String validateNif(String nif) => ffi.validateNif(nif: nif);
+
+  @override
+  String encryptSession(String pin) => ffi.encryptSession(pin: pin);
+
+  @override
+  bool decryptAndLoadSession(String sealed, String pin) =>
+      ffi.decryptAndLoadSession(sealed: sealed, pin: pin);
+
+  @override
+  String changeSessionPin(String sealed, String oldPin, String newPin) =>
+      ffi.changeSessionPin(sealed: sealed, oldPin: oldPin, newPin: newPin);
 }
 
 // ---------------------------------------------------------------------------

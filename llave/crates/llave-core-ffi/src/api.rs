@@ -411,6 +411,48 @@ pub fn validate_nif(nif: String) -> Result<String, String> {
     llave_core::config::validate_nif(&nif).map_err(|e| e.to_string())
 }
 
+// ---------------------------------------------------------------------------
+// PIN-based session encryption
+// ---------------------------------------------------------------------------
+
+/// Encrypt the current in-memory session with a PIN.
+///
+/// Returns a base64-encoded sealed blob. Flutter should store this in
+/// `flutter_secure_storage` instead of raw JSON.
+#[frb]
+pub fn encrypt_session(pin: String) -> Result<String, String> {
+    let json = llave_core::Session::get_session_data().map_err(|e| e.to_string())?;
+    llave_core::crypto::seal_session(&json, &pin).map_err(|e| e.to_string())
+}
+
+/// Decrypt a sealed session blob and load it into the Rust core.
+///
+/// On success the session is available for all subsequent API calls.
+/// Returns an error if the PIN is wrong (AES-GCM auth fails).
+#[frb]
+pub fn decrypt_and_load_session(sealed: String, pin: String) -> Result<bool, String> {
+    let json =
+        llave_core::crypto::open_session(&sealed, &pin).map_err(|e| e.to_string())?;
+    llave_core::Session::set_session_data(&json).map_err(|e| e.to_string())?;
+    tracing::debug!("session decrypted and loaded");
+    Ok(true)
+}
+
+/// Re-encrypt the current session with a new PIN.
+///
+/// Requires the old PIN to decrypt first (validates the caller knows it),
+/// then re-encrypts with the new PIN and returns the new sealed blob.
+#[frb]
+pub fn change_session_pin(
+    sealed: String,
+    old_pin: String,
+    new_pin: String,
+) -> Result<String, String> {
+    let json =
+        llave_core::crypto::open_session(&sealed, &old_pin).map_err(|e| e.to_string())?;
+    llave_core::crypto::seal_session(&json, &new_pin).map_err(|e| e.to_string())
+}
+
 /// Phase 1: DNI/NIE auth → registration check → request SMS code.
 ///
 /// Returns the registration state, masked phone number, SMS tokens,

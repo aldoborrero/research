@@ -242,6 +242,26 @@ String validateNif({required String nif}) {
   return r['data'] as String;
 }
 
+/// Encrypt the current in-memory session with a PIN.
+String encryptSession({required String pin}) {
+  final r = _checkOk(_call1(nativeLibPath, 'llave_encrypt_session', pin));
+  return r['data'] as String;
+}
+
+/// Decrypt a sealed session blob and load it into the Rust core.
+bool decryptAndLoadSession({required String sealed, required String pin}) {
+  _checkOk(_call2(nativeLibPath, 'llave_decrypt_and_load_session', sealed, pin));
+  return true;
+}
+
+/// Re-encrypt the session with a new PIN (requires old PIN for verification).
+String changeSessionPin(
+    {required String sealed, required String oldPin, required String newPin}) {
+  final r = _checkOk(
+      _call3(nativeLibPath, 'llave_change_session_pin', sealed, oldPin, newPin));
+  return r['data'] as String;
+}
+
 // ---------------------------------------------------------------------------
 // Async API (run in isolate to avoid blocking UI)
 // ---------------------------------------------------------------------------
