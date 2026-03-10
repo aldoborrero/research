@@ -374,22 +374,36 @@ impl LlaveClient {
 
     /// Activate device authentication.
     ///
-    /// Uses www6 and the `ClaveActivateAuthenticationSv` endpoint, matching
-    /// the Android app's standard device-activation flow (isWww6Domain=true).
+    /// The Android app uses www6 (WebView flow) or www1 (NFC cert flow).
+    /// Since our DNI auth session is on www2/www12, we try www2 first
+    /// (same host as all other MOVI-P24H endpoints), falling back to www6.
     pub async fn activate_authentication(
         &self,
         device_password: &str,
         token_push: &str,
     ) -> Result<ApiResponse<ActivateResponse>> {
-        let url = format!("{BASE_URL_WWW6}/wlpl/MOVI-P24H/ClaveActivateAuthenticationSv");
-        self.post_form("activate_authentication", &url, &[
+        let form = &[
             ("sistema_operativo", OS_NAME),
             ("version_os", OS_VERSION),
             ("version_app", APP_VERSION),
             ("token_push", token_push),
             ("user_password", device_password),
             ("modelo", DEVICE_MODEL),
-        ]).await
+        ];
+
+        // Try www2 first (where our DNI auth session lives).
+        let url_www2 = format!("{BASE_URL}/wlpl/MOVI-P24H/ClaveActivateAuthenticationSv");
+        tracing::info!("trying activation on www2");
+        match self.post_form::<ActivateResponse>("activate_authentication", &url_www2, form).await {
+            Ok(resp) => return Ok(resp),
+            Err(e) => {
+                tracing::info!(err = %e, "www2 activation failed, trying www6");
+            }
+        }
+
+        // Fall back to www6 (Android's default for WebView flow).
+        let url_www6 = format!("{BASE_URL_WWW6}/wlpl/MOVI-P24H/ClaveActivateAuthenticationSv");
+        self.post_form("activate_authentication", &url_www6, form).await
     }
 
     /// Deactivate device authentication.
