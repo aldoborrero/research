@@ -546,14 +546,17 @@ impl LlaveClient {
         ]).await
     }
 
-    /// Request a Llave PIN.
+    /// Request a Cl@ve PIN.
+    ///
+    /// Uses `ClaveRequestPinSv` (the current endpoint). The older
+    /// `LlaveRequestPinSv` returns 404 on public internet.
     pub async fn request_pin(
         &self,
         device_id: &str,
         device_password: &str,
         nif: &str,
     ) -> Result<ApiResponse<RequestPinResponse>> {
-        let url = format!("{BASE_URL}/wlpl/MOVI-P24H/LlaveRequestPinSv");
+        let url = format!("{BASE_URL}/wlpl/MOVI-P24H/ClaveRequestPinSv");
         self.post_form("request_pin", &url, &[
             ("device_id", device_id),
             ("user_password", device_password),
@@ -564,7 +567,10 @@ impl LlaveClient {
         ]).await
     }
 
-    /// Confirm a Llave Móvil authentication request.
+    /// Confirm a Cl@ve Móvil authentication request.
+    ///
+    /// Uses `ClaveAuthenticateSv` (the current endpoint). The older
+    /// `LlaveAuthenticateSv` returns 404 on public internet.
     pub async fn authenticate(
         &self,
         device_id: &str,
@@ -573,7 +579,7 @@ impl LlaveClient {
         token_clave_movil: &str,
         codigo_idp: &str,
     ) -> Result<ApiResponse<AuthenticateResponse>> {
-        let url = format!("{BASE_URL}/wlpl/MOVI-P24H/LlaveAuthenticateSv");
+        let url = format!("{BASE_URL}/wlpl/MOVI-P24H/ClaveAuthenticateSv");
         self.post_form("authenticate", &url, &[
             ("device_id", device_id),
             ("user_password", device_password),
@@ -586,7 +592,10 @@ impl LlaveClient {
         ]).await
     }
 
-    /// Cancel a pending Llave Móvil authentication.
+    /// Cancel a pending Cl@ve Móvil authentication.
+    ///
+    /// Uses `ClaveCancelAuthenticateSv`. The older `LlaveCancelAuthenticateSv`
+    /// returns 404 on public internet.
     pub async fn cancel_authenticate(
         &self,
         device_id: &str,
@@ -594,7 +603,7 @@ impl LlaveClient {
         token_clave_movil: &str,
         codigo_idp: &str,
     ) -> Result<ApiResponse<serde_json::Value>> {
-        let url = format!("{BASE_URL}/wlpl/MOVI-P24H/LlaveCancelAuthenticateSv");
+        let url = format!("{BASE_URL}/wlpl/MOVI-P24H/ClaveCancelAuthenticateSv");
         self.post_form("cancel_authenticate", &url, &[
             ("device_id", device_id),
             ("NIF", nif),
@@ -711,12 +720,15 @@ impl LlaveClient {
     }
 
     /// Deactivate device authentication.
+    ///
+    /// Uses `ClaveDesactivateAuthSv`. The older `LlaveDesactivateAuthSv`
+    /// returns 404 on public internet.
     pub async fn deactivate_authentication(
         &self,
         device_id: &str,
         nif: &str,
     ) -> Result<ApiResponse<serde_json::Value>> {
-        let url = format!("{BASE_URL}/wlpl/MOVI-P24H/LlaveDesactivateAuthSv");
+        let url = format!("{BASE_URL}/wlpl/MOVI-P24H/ClaveDesactivateAuthSv");
         self.post_form("deactivate_authentication", &url, &[
             ("device_id", device_id),
             ("NIF", nif),
@@ -861,7 +873,7 @@ impl LlaveClient {
         nif: &str,
         timestamp: &str,
     ) -> Result<ApiResponse<serde_json::Value>> {
-        let url = format!("{BASE_URL}/wlpl/MOVI-P24H/LlaveRequestAllOperationsSv");
+        let url = format!("{BASE_URL}/wlpl/MOVI-P24H/ClaveRequestAllOperationsSv");
         self.post_form("request_all_operations", &url, &[
             ("device_id", device_id),
             ("NIF", nif),
@@ -879,7 +891,7 @@ impl LlaveClient {
         device_password: &str,
         nif: &str,
     ) -> Result<ApiResponse<OperationsHistoryResponse>> {
-        let url = format!("{BASE_URL}/wlpl/MOVI-P24H/LlaveOperationsHistorySv");
+        let url = format!("{BASE_URL}/wlpl/MOVI-P24H/ClaveOperationsHistorySv");
         self.post_form("operations_history", &url, &[
             ("device_id", device_id),
             ("user_password", device_password),
@@ -957,7 +969,7 @@ impl LlaveClient {
         nif: &str,
         token_push: &str,
     ) -> Result<ApiResponse<serde_json::Value>> {
-        let url = format!("{BASE_URL}/wlpl/MOVI-P24H/LlaveSetFirebaseTokenSv");
+        let url = format!("{BASE_URL}/wlpl/MOVI-P24H/ClaveSetFirebaseTokenSv");
         self.post_form("set_firebase_token", &url, &[
             ("device_id", device_id),
             ("NIF", nif),
@@ -975,7 +987,7 @@ impl LlaveClient {
         device_password: &str,
         nif: &str,
     ) -> Result<ApiResponse<serde_json::Value>> {
-        let url = format!("{BASE_URL_WWW12}/wlpl/MOVI-P24H/LlaveRequestStateSv");
+        let url = format!("{BASE_URL_WWW12}/wlpl/MOVI-P24H/ClaveRequestStateSv");
         self.post_form("request_state", &url, &[
             ("device_id", device_id),
             ("user_password", device_password),
