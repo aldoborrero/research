@@ -123,6 +123,21 @@ pub async fn dni_request_sms(
     fecha: &str,
     soporte: &str,
 ) -> Result<DniSmsPhase1> {
+    // Step 0: Call starting() to establish a device session on the server.
+    // The Android app always calls LlaveStartingSv at app launch, which sets
+    // server-side context that ObtenerClaveMovilSMS depends on.
+    let device_id = uuid::Uuid::new_v4().to_string();
+    tracing::info!("calling starting() to establish device session");
+    let starting_resp = client.starting(&device_id, nif, "").await?;
+    if starting_resp.status != "OK" {
+        tracing::warn!(
+            status = %starting_resp.status,
+            code = starting_resp.codigo_error.as_deref().unwrap_or("?"),
+            message = starting_resp.mensaje.as_deref().unwrap_or("?"),
+            "starting() returned non-OK (continuing anyway)"
+        );
+    }
+
     // Step 1: DNI/NIE auth (establishes session cookies).
     tracing::info!("authenticating via DNI/NIE");
     client.authenticate_dni_nie(nif, fecha, soporte).await?;
