@@ -154,9 +154,15 @@ impl LlaveClient {
 
     /// Build the `Cookie` header value from all stored cookies.
     fn cookie_header(&self) -> String {
+        self.cookie_header_filtered(&[])
+    }
+
+    /// Build cookie header, excluding cookies whose names are in `exclude`.
+    fn cookie_header_filtered(&self, exclude: &[&str]) -> String {
         let cookies = self.cookies.lock().unwrap();
         cookies
             .iter()
+            .filter(|(k, _)| !exclude.contains(&k.as_str()))
             .map(|(k, v)| format!("{k}={v}"))
             .collect::<Vec<_>>()
             .join("; ")
@@ -429,27 +435,90 @@ impl LlaveClient {
 
     /// Activate device authentication.
     ///
-    /// The endpoint only exists on www6. We first establish a www6 session
-    /// (the Android app does this through WebView browsing), then POST.
+    /// The endpoint only exists on www6. We send WWW12/WWW12V auth tokens
+    /// but strip the www2 JSESSIONID — sending a JSESSIONID from a different
+    /// WebSphere cluster confuses www6 into returning the homepage.
     pub async fn activate_authentication(
         &self,
         device_password: &str,
         token_push: &str,
     ) -> Result<ApiResponse<ActivateResponse>> {
-        // Establish a www6 session first (captures www6 JSESSIONID).
-        if let Err(e) = self.establish_www6_session().await {
-            tracing::warn!(err = %e, "failed to establish www6 session, trying activation anyway");
+        let url = format!("{BASE_URL_WWW6}/wlpl/MOVI-P24H/ClaveActivateAuthenticationSv");
+
+        // Strip JSESSIONID — it's from www2's WebSphere cluster and
+        // confuses www6. Send only the cross-domain auth tokens (WWW12 etc).
+        let cookie_header = self.cookie_header_filtered(&["JSESSIONID"]);
+        tracing::info!(cookies = %cookie_header, "activation request to www6 (no JSESSIONID)");
+
+        let mut req = self
+            .client
+            .post(&url)
+            .header("TrazasApp", &self.trace_id)
+            .form(&[
+                ("sistema_operativo", OS_NAME),
+                ("version_os", OS_VERSION),
+                ("version_app", APP_VERSION),
+                ("token_push", token_push),
+                ("user_password", device_password),
+                ("modelo", DEVICE_MODEL),
+            ]);
+        if !cookie_header.is_empty() {
+            req = req.header(reqwest::header::COOKIE, &cookie_header);
         }
 
-        let url = format!("{BASE_URL_WWW6}/wlpl/MOVI-P24H/ClaveActivateAuthenticationSv");
-        self.post_form("activate_authentication", &url, &[
-            ("sistema_operativo", OS_NAME),
-            ("version_os", OS_VERSION),
-            ("version_app", APP_VERSION),
-            ("token_push", token_push),
-            ("user_password", device_password),
-            ("modelo", DEVICE_MODEL),
-        ]).await
+        let mut resp = req.send().await?;
+        tracing::info!(http_status = %resp.status(), "www6 activation response");
+        self.capture_cookies(&resp);
+
+        // Follow redirects, re-attaching cookies at each hop.
+        while resp.status().is_redirection() {
+            let location = resp
+                .headers()
+                .get(reqwest::header::LOCATION)
+                .and_then(|v| v.to_str().ok())
+                .unwrap_or_default()
+                .to_string();
+            if location.is_empty() {
+                break;
+            }
+            let next_url = if location.starts_with("http") {
+                location.clone()
+            } else {
+                let base = resp.url().origin().unicode_serialization();
+                format!("{base}{location}")
+            };
+            tracing::info!(redirect_to = %next_url, "activation redirect");
+            let cookie_header = self.cookie_header();
+            let mut next = self.client.get(&next_url).header("TrazasApp", &self.trace_id);
+            if !cookie_header.is_empty() {
+                next = next.header(reqwest::header::COOKIE, &cookie_header);
+            }
+            resp = next.send().await?;
+            self.capture_cookies(&resp);
+        }
+
+        let final_status = resp.status();
+        let final_url = resp.url().to_string();
+        let body = resp.text().await?;
+        tracing::info!(
+            http_status = %final_status,
+            final_url = %final_url,
+            body_len = body.len(),
+            body_preview = %&body[..body.len().min(300)],
+            "www6 activation response body"
+        );
+
+        let trimmed = body.trim_start();
+        if trimmed.starts_with("<!DOCTYPE") || trimmed.starts_with("<html") {
+            return Err(LlaveError::HtmlResponse {
+                endpoint: "activate_authentication".to_string(),
+            });
+        }
+
+        serde_json::from_str::<ApiResponse<ActivateResponse>>(&body).map_err(|e| {
+            tracing::error!(err = %e, body_preview = %&body[..body.len().min(1024)], "failed to decode activation response");
+            LlaveError::Json(e)
+        })
     }
 
     /// Deactivate device authentication.
