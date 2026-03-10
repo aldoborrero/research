@@ -372,38 +372,82 @@ impl LlaveClient {
         ]).await
     }
 
+    /// Establish a session on www6 by making a GET request.
+    ///
+    /// The Android app gets a www6 session through WebView browsing.
+    /// We replicate this by hitting a www6 URL, which lets the server
+    /// issue a www6 session cookie (JSESSIONID) and potentially link
+    /// it to our existing www2/www12 auth cookies.
+    async fn establish_www6_session(&self) -> Result<()> {
+        let url = format!("{BASE_URL_WWW6}/wlpl/MOVI-P24H/");
+        tracing::info!("establishing www6 session");
+
+        let cookie_header = self.cookie_header();
+        let mut req = self.client.get(&url).header("TrazasApp", &self.trace_id);
+        if !cookie_header.is_empty() {
+            req = req.header(reqwest::header::COOKIE, &cookie_header);
+        }
+
+        let mut resp = req.send().await?;
+        tracing::info!(http_status = %resp.status(), "www6 session GET response");
+        self.capture_cookies(&resp);
+
+        // Follow redirects (www6 might redirect to an auth/session page).
+        let mut hops = 0u32;
+        while resp.status().is_redirection() && hops < 10 {
+            let location = resp
+                .headers()
+                .get(reqwest::header::LOCATION)
+                .and_then(|v| v.to_str().ok())
+                .unwrap_or_default()
+                .to_string();
+            if location.is_empty() {
+                break;
+            }
+            let next_url = if location.starts_with("http") {
+                location.clone()
+            } else {
+                let base = resp.url().origin().unicode_serialization();
+                format!("{base}{location}")
+            };
+            tracing::info!(redirect_to = %next_url, "www6 session redirect");
+            let cookie_header = self.cookie_header();
+            let mut next = self.client.get(&next_url).header("TrazasApp", &self.trace_id);
+            if !cookie_header.is_empty() {
+                next = next.header(reqwest::header::COOKIE, &cookie_header);
+            }
+            resp = next.send().await?;
+            self.capture_cookies(&resp);
+            hops += 1;
+        }
+
+        tracing::info!(cookies = %self.cookie_header(), "www6 session cookies after bridge");
+        Ok(())
+    }
+
     /// Activate device authentication.
     ///
-    /// The Android app uses www6 (WebView flow) or www1 (NFC cert flow).
-    /// Since our DNI auth session is on www2/www12, we try www12 first,
-    /// then www6, logging the result at each step.
+    /// The endpoint only exists on www6. We first establish a www6 session
+    /// (the Android app does this through WebView browsing), then POST.
     pub async fn activate_authentication(
         &self,
         device_password: &str,
         token_push: &str,
     ) -> Result<ApiResponse<ActivateResponse>> {
-        let form = &[
+        // Establish a www6 session first (captures www6 JSESSIONID).
+        if let Err(e) = self.establish_www6_session().await {
+            tracing::warn!(err = %e, "failed to establish www6 session, trying activation anyway");
+        }
+
+        let url = format!("{BASE_URL_WWW6}/wlpl/MOVI-P24H/ClaveActivateAuthenticationSv");
+        self.post_form("activate_authentication", &url, &[
             ("sistema_operativo", OS_NAME),
             ("version_os", OS_VERSION),
             ("version_app", APP_VERSION),
             ("token_push", token_push),
             ("user_password", device_password),
             ("modelo", DEVICE_MODEL),
-        ];
-
-        // Try www12 first (where our DNI auth session is valid).
-        let url_www12 = format!("{BASE_URL_WWW12}/wlpl/MOVI-P24H/ClaveActivateAuthenticationSv");
-        tracing::info!("trying activation on www12");
-        match self.post_form::<ActivateResponse>("activate_authentication", &url_www12, form).await {
-            Ok(resp) => return Ok(resp),
-            Err(e) => {
-                tracing::info!(err = %e, "www12 activation failed, trying www6");
-            }
-        }
-
-        // Fall back to www6 (Android's default for WebView flow).
-        let url_www6 = format!("{BASE_URL_WWW6}/wlpl/MOVI-P24H/ClaveActivateAuthenticationSv");
-        self.post_form("activate_authentication", &url_www6, form).await
+        ]).await
     }
 
     /// Deactivate device authentication.
