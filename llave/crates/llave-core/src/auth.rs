@@ -63,10 +63,18 @@ pub async fn activate_device(
 }
 
 /// Request a Llave PIN using saved session credentials.
+///
+/// Follows the Android app's sequence: ClaveStartingSv → ClaveIsNifActivatedSv
+/// → ClaveRequestPinSv.  The IsNifActivated step is required — without it the
+/// server returns error 307 on RequestPin.
 pub async fn request_pin(client: &LlaveClient, session: &Session) -> Result<(String, String)> {
     tracing::info!("requesting pin");
     let _starting = client
         .clave_starting(&session.device_id, &session.nif, "")
+        .await?;
+
+    let _activated = client
+        .clave_is_nif_activated(&session.device_id, &session.nif)
         .await?;
 
     let resp = client
