@@ -126,7 +126,12 @@ pub async fn dni_request_sms(
     // Step 1: DNI/NIE auth (establishes session cookies).
     tracing::info!("authenticating via DNI/NIE");
     client.authenticate_dni_nie(nif, fecha, soporte).await?;
-    tracing::info!("DNI/NIE auth complete (session cookies captured)");
+    {
+        let c = client.export_cookies();
+        let parsed: Vec<(String, String)> = serde_json::from_str(&c).unwrap_or_default();
+        let names: Vec<&str> = parsed.iter().map(|(k, _)| k.as_str()).collect();
+        tracing::info!(cookie_names = ?names, "DNI/NIE auth complete — cookie jar");
+    }
 
     // Step 2: Check registration state (uses session cookies from step 1).
     tracing::info!("checking registration state");
@@ -149,6 +154,12 @@ pub async fn dni_request_sms(
         nivel = state.nivel_registro.as_deref().unwrap_or("?"),
         "registration state"
     );
+    {
+        let c = client.export_cookies();
+        let parsed: Vec<(String, String)> = serde_json::from_str(&c).unwrap_or_default();
+        let names: Vec<&str> = parsed.iter().map(|(k, _)| k.as_str()).collect();
+        tracing::info!(cookie_names = ?names, "after ClaveRequestStateSv — cookie jar");
+    }
 
     // Step 3: Request SMS code (triggers SMS to user's registered phone).
     tracing::info!("requesting SMS verification code");

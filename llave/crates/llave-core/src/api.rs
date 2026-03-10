@@ -197,6 +197,29 @@ impl LlaveClient {
 
     /// Capture `Set-Cookie` headers from a response and store them.
     fn capture_cookies(&self, resp: &reqwest::Response) {
+        // Also log raw Set-Cookie headers for debugging.
+        let raw_set_cookies: Vec<String> = resp
+            .headers()
+            .get_all(reqwest::header::SET_COOKIE)
+            .iter()
+            .filter_map(|v| v.to_str().ok())
+            .map(|s| {
+                // Truncate long values for readability.
+                if s.len() > 80 {
+                    format!("{}...", &s[..80])
+                } else {
+                    s.to_string()
+                }
+            })
+            .collect();
+        if !raw_set_cookies.is_empty() {
+            tracing::info!(
+                url = %resp.url(),
+                set_cookies = ?raw_set_cookies,
+                "captured Set-Cookie headers"
+            );
+        }
+
         let mut cookies = self.cookies.lock().unwrap();
         for cookie in resp.cookies() {
             let name = cookie.name().to_string();
@@ -391,7 +414,7 @@ impl LlaveClient {
         let final_status = resp.status();
         let final_url = resp.url().to_string();
         let body = resp.text().await?;
-        tracing::debug!(endpoint = endpoint, http_status = %final_status, final_url = %final_url, body_len = body.len(), body_preview = %&body[..body.len().min(512)], "aeat response body");
+        tracing::info!(endpoint = endpoint, http_status = %final_status, final_url = %final_url, body_len = body.len(), body_preview = %&body[..body.len().min(512)], "aeat response body (empty POST)");
 
         let trimmed = body.trim_start();
         if trimmed.starts_with("<!DOCTYPE") || trimmed.starts_with("<html") {
