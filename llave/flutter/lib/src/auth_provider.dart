@@ -83,30 +83,59 @@ class AuthNotifier extends StateNotifier<AuthState> {
     }
   }
 
-  /// Authenticate via DNI/NIE and transition to authenticated state.
+  /// Phase 1: DNI/NIE auth → registration check → request SMS code.
+  ///
+  /// Returns SMS metadata (masked phone, tokens, cookies) on success.
+  /// The caller should display the phone number and collect the SMS PIN,
+  /// then call [dniCompleteActivation].
   Future<LlaveApiResult> dniAuthenticate(
       String nif, String fecha, String soporte) async {
-    _log.info('authenticating via DNI/NIE');
+    _log.info('authenticating via DNI/NIE (phase 1: request SMS)');
     state = const AuthLoading();
     try {
       final result = await _bridge.dniAuthenticate(nif, fecha, soporte);
       if (result.ok) {
-        // Re-check session status — the backend should have established one.
-        checkSession();
-        // If the backend didn't establish a full session (e.g. DNI-only flow),
-        // persist whatever state exists.
-        final json = _bridge.exportSession();
-        if (json != null) {
-          await SecureSessionStore.write(json);
-        }
-        _log.info('DNI/NIE authentication successful');
+        _log.info('DNI/NIE auth succeeded — SMS sent');
+        // Don't transition to authenticated yet — SMS validation still needed.
+        state = const AuthUnauthenticated();
       } else {
-        _log.warning('DNI/NIE authentication failed: ${result.error}');
+        _log.warning('DNI/NIE auth failed: ${result.error}');
         state = AuthError(result.error ?? 'DNI/NIE authentication failed');
       }
       return result;
     } catch (e) {
       _log.severe('DNI/NIE authentication error: $e');
+      state = AuthError(e.toString());
+      rethrow;
+    }
+  }
+
+  /// Phase 2: Validate SMS code + activate device.
+  Future<LlaveApiResult> dniCompleteActivation(
+      String nif,
+      String cookiesJson,
+      String timestampAltaSms,
+      String tokenClaveMovilSms,
+      String smsPin) async {
+    _log.info('completing DNI/NIE activation (phase 2: validate SMS + activate)');
+    state = const AuthLoading();
+    try {
+      final result = await _bridge.dniCompleteActivation(
+          nif, cookiesJson, timestampAltaSms, tokenClaveMovilSms, smsPin);
+      if (result.ok) {
+        checkSession();
+        final json = _bridge.exportSession();
+        if (json != null) {
+          await SecureSessionStore.write(json);
+        }
+        _log.info('DNI/NIE + SMS activation succeeded');
+      } else {
+        _log.warning('DNI/NIE activation failed: ${result.error}');
+        state = AuthError(result.error ?? 'Activation failed');
+      }
+      return result;
+    } catch (e) {
+      _log.severe('DNI/NIE activation error: $e');
       state = AuthError(e.toString());
       rethrow;
     }

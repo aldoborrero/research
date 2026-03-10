@@ -97,6 +97,13 @@ typedef _Fn3C = ffi.Pointer<Utf8> Function(
 typedef _Fn3Dart = ffi.Pointer<Utf8> Function(
     ffi.Pointer<Utf8>, ffi.Pointer<Utf8>, ffi.Pointer<Utf8>);
 
+typedef _Fn5C = ffi.Pointer<Utf8> Function(
+    ffi.Pointer<Utf8>, ffi.Pointer<Utf8>, ffi.Pointer<Utf8>,
+    ffi.Pointer<Utf8>, ffi.Pointer<Utf8>);
+typedef _Fn5Dart = ffi.Pointer<Utf8> Function(
+    ffi.Pointer<Utf8>, ffi.Pointer<Utf8>, ffi.Pointer<Utf8>,
+    ffi.Pointer<Utf8>, ffi.Pointer<Utf8>);
+
 typedef _FnListenC = ffi.Pointer<Utf8> Function(ffi.Uint64, ffi.Uint32);
 typedef _FnListenDart = ffi.Pointer<Utf8> Function(int, int);
 
@@ -176,6 +183,26 @@ Map<String, dynamic> _call3(
   _freeNative(p1);
   _freeNative(p2);
   _freeNative(p3);
+  return result;
+}
+
+/// Call a 5-arg native function.
+Map<String, dynamic> _call5(
+    String libPath, String symbol, String? a1, String? a2, String? a3,
+    String? a4, String? a5) {
+  final lib = ffi.DynamicLibrary.open(libPath);
+  final fn = lib.lookupFunction<_Fn5C, _Fn5Dart>(symbol);
+  final p1 = _toNative(a1);
+  final p2 = _toNative(a2);
+  final p3 = _toNative(a3);
+  final p4 = _toNative(a4);
+  final p5 = _toNative(a5);
+  final result = _parseResult(lib, fn(p1, p2, p3, p4, p5));
+  _freeNative(p1);
+  _freeNative(p2);
+  _freeNative(p3);
+  _freeNative(p4);
+  _freeNative(p5);
   return result;
 }
 
@@ -305,6 +332,19 @@ Future<FfiApiResult> dniAuthenticate(
   final lp = nativeLibPath;
   return Isolate.run(
       () => _toApiResult(_checkOk(_call3(lp, 'llave_dni_authenticate', nif, fecha, soporte))));
+}
+
+Future<FfiApiResult> dniCompleteActivation({
+    required String nif,
+    required String cookiesJson,
+    required String timestampAltaSms,
+    required String tokenClaveMovilSms,
+    required String smsPin,
+}) async {
+  final lp = nativeLibPath;
+  return Isolate.run(
+      () => _toApiResult(_checkOk(_call5(lp, 'llave_dni_complete_activation',
+          nif, cookiesJson, timestampAltaSms, tokenClaveMovilSms, smsPin))));
 }
 
 Future<FfiApiResult> setFirebaseToken({required String tokenPush}) async {

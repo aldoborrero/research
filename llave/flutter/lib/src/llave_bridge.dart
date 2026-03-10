@@ -104,6 +104,8 @@ abstract class LlaveBridge {
   Future<LlaveApiResult> qrAuthenticate(String value);
   Future<LlaveApiResult> deactivate();
   Future<LlaveApiResult> dniAuthenticate(String nif, String fecha, String soporte);
+  Future<LlaveApiResult> dniCompleteActivation(String nif, String cookiesJson,
+      String timestampAltaSms, String tokenClaveMovilSms, String smsPin);
   bool logout();
   String validateNif(String nif);
 }
@@ -232,17 +234,25 @@ class MockLlaveBridge implements LlaveBridge {
   @override
   Future<LlaveApiResult> dniAuthenticate(String nif, String fecha, String soporte) async {
     await Future<void>.delayed(const Duration(milliseconds: 800));
+    return LlaveApiResult(
+      ok: true,
+      data: '{"movil":"***1234","hora_peticion":"12:00","timestamp_alta_sms":"mock_ts","token_clave_movil_sms":"mock_token","cookies_json":"[]","registrado":"S","nivel_registro":"A","telefono":"S"}',
+    );
+  }
 
+  @override
+  Future<LlaveApiResult> dniCompleteActivation(String nif, String cookiesJson,
+      String timestampAltaSms, String tokenClaveMovilSms, String smsPin) async {
+    await Future<void>.delayed(const Duration(milliseconds: 800));
     final validated = validateNif(nif);
     _session = LlaveSession(
       deviceId: 'mock-dni-${DateTime.now().millisecondsSinceEpoch}',
       nif: validated,
       createdAt: DateTime.now().toIso8601String(),
     );
-
-    return const LlaveApiResult(
+    return LlaveApiResult(
       ok: true,
-      data: '<html><body>Mock DNI authentication successful</body></html>',
+      data: '{"device_id":"${_session!.deviceId}","nif":"$validated"}',
     );
   }
 
@@ -373,6 +383,18 @@ class RealLlaveBridge implements LlaveBridge {
   @override
   Future<LlaveApiResult> dniAuthenticate(String nif, String fecha, String soporte) async {
     final r = await ffi.dniAuthenticate(nif: nif, fecha: fecha, soporte: soporte);
+    return LlaveApiResult(ok: r.ok, data: r.data, error: r.error);
+  }
+
+  @override
+  Future<LlaveApiResult> dniCompleteActivation(String nif, String cookiesJson,
+      String timestampAltaSms, String tokenClaveMovilSms, String smsPin) async {
+    final r = await ffi.dniCompleteActivation(
+        nif: nif,
+        cookiesJson: cookiesJson,
+        timestampAltaSms: timestampAltaSms,
+        tokenClaveMovilSms: tokenClaveMovilSms,
+        smsPin: smsPin);
     return LlaveApiResult(ok: r.ok, data: r.data, error: r.error);
   }
 

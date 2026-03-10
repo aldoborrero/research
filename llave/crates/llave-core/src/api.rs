@@ -131,7 +131,6 @@ pub struct ObtenerSmsResponse {
 /// prevents cookies set by `www2` from being sent to `www6` or `www12`.
 pub struct LlaveClient {
     client: Client,
-    trace_id: String,
     /// All cookies collected from responses, forwarded to every request.
     cookies: Mutex<Vec<(String, String)>>,
 }
@@ -154,12 +153,8 @@ impl LlaveClient {
             })
             .build()?;
 
-        let trace_id = uuid::Uuid::new_v4().to_string();
-        tracing::debug!(trace_id = %trace_id, "client created");
-
         Ok(Self {
             client,
-            trace_id,
             cookies: Mutex::new(Vec::new()),
         })
     }
@@ -215,6 +210,43 @@ impl LlaveClient {
         }
     }
 
+    /// Build the TrazasApp header value matching the Android app's `getCookiesInApp()`.
+    ///
+    /// The Android app sends a JSON object containing cookie diagnostic info.
+    /// We replicate this so the server recognises us as a legitimate client.
+    fn trazas_app_header(&self) -> String {
+        let cookies = self.cookies.lock().unwrap();
+        let get = |name: &str| -> String {
+            cookies
+                .iter()
+                .find(|(k, _)| k == name)
+                .map(|(_, v)| v.clone())
+                .unwrap_or_else(|| "null".into())
+        };
+        let www12 = get("WWW12");
+        let www12v = get("WWW12V");
+        let pin24h = get("pin24H");
+        let pin24v = get("pin24V");
+        let cert1 = get("CERT_WWW1");
+        let cert1v = get("CERT_WWW1V");
+        let appmovil = get("appmovil");
+        let sgat_lang = get("sgat-language");
+
+        serde_json::to_string(&serde_json::json!({
+            "CERT_WWW1": format!("{cert1} y {cert1v}"),
+            "pin24H": format!("{pin24h} y {pin24v}"),
+            "WWW12": format!("{www12} y {www12v}"),
+            "appmovil": appmovil,
+            "sgat-language": sgat_lang,
+            "CERT_WWW1_keychain": format!("{} y {}", get("CERT_WWW1"), get("CERT_WWW1V")),
+            "pin24H_keychain": format!("{} y {}", get("pin24H"), get("pin24V")),
+            "WWW12_keychain": format!("{} y {}", get("WWW12"), get("WWW12V")),
+            "appmovil_keychain": get("appmovil"),
+            "sgat-language_keychain": get("sgat-language"),
+        }))
+        .unwrap_or_else(|_| "{}".into())
+    }
+
     async fn post_form<T: serde::de::DeserializeOwned>(
         &self,
         endpoint: &str,
@@ -226,7 +258,7 @@ impl LlaveClient {
         let mut req = self
             .client
             .post(url)
-            .header("TrazasApp", &self.trace_id)
+            .header("TrazasApp", self.trazas_app_header())
             .form(form);
         if !cookie_header.is_empty() {
             req = req.header(reqwest::header::COOKIE, &cookie_header);
@@ -260,7 +292,7 @@ impl LlaveClient {
             tracing::debug!(endpoint = endpoint, redirect_to = %next_url, "following redirect");
 
             let cookie_header = self.cookie_header();
-            let mut next = self.client.get(&next_url).header("TrazasApp", &self.trace_id);
+            let mut next = self.client.get(&next_url).header("TrazasApp", self.trazas_app_header());
             if !cookie_header.is_empty() {
                 next = next.header(reqwest::header::COOKIE, &cookie_header);
             }
@@ -295,6 +327,74 @@ impl LlaveClient {
                 body_preview = %&body[..body.len().min(1024)],
                 "failed to decode response as JSON"
             );
+            LlaveError::Json(e)
+        })
+    }
+
+    /// POST with no body (matching Retrofit `@POST` without `@FormUrlEncoded`).
+    ///
+    /// Some AEAT endpoints (like ObtenerClaveMovilSMS) expect a bare POST
+    /// with no Content-Type or body. Sending form-encoded data causes 902024.
+    async fn post_empty<T: serde::de::DeserializeOwned>(
+        &self,
+        endpoint: &str,
+        url: &str,
+    ) -> Result<ApiResponse<T>> {
+        let cookie_header = self.cookie_header();
+        tracing::debug!(endpoint = endpoint, url = url, cookies = %cookie_header, "aeat request (empty POST)");
+        let mut req = self
+            .client
+            .post(url)
+            .header("TrazasApp", self.trazas_app_header())
+            .header(reqwest::header::CONTENT_LENGTH, "0");
+        if !cookie_header.is_empty() {
+            req = req.header(reqwest::header::COOKIE, &cookie_header);
+        }
+
+        let mut resp = req.send().await?;
+        tracing::debug!(endpoint = endpoint, http_status = %resp.status(), "aeat response");
+        self.capture_cookies(&resp);
+
+        while resp.status().is_redirection() {
+            let location = resp
+                .headers()
+                .get(reqwest::header::LOCATION)
+                .and_then(|v| v.to_str().ok())
+                .unwrap_or_default()
+                .to_string();
+            if location.is_empty() {
+                break;
+            }
+            let next_url = if location.starts_with("http") {
+                location.clone()
+            } else {
+                let base = resp.url().origin().unicode_serialization();
+                format!("{base}{location}")
+            };
+            tracing::debug!(endpoint = endpoint, redirect_to = %next_url, "following redirect");
+            let cookie_header = self.cookie_header();
+            let mut next = self.client.get(&next_url).header("TrazasApp", self.trazas_app_header());
+            if !cookie_header.is_empty() {
+                next = next.header(reqwest::header::COOKIE, &cookie_header);
+            }
+            resp = next.send().await?;
+            self.capture_cookies(&resp);
+        }
+
+        let final_status = resp.status();
+        let final_url = resp.url().to_string();
+        let body = resp.text().await?;
+        tracing::debug!(endpoint = endpoint, http_status = %final_status, final_url = %final_url, body_len = body.len(), body_preview = %&body[..body.len().min(512)], "aeat response body");
+
+        let trimmed = body.trim_start();
+        if trimmed.starts_with("<!DOCTYPE") || trimmed.starts_with("<html") {
+            return Err(LlaveError::HtmlResponse {
+                endpoint: endpoint.to_string(),
+            });
+        }
+
+        serde_json::from_str::<ApiResponse<T>>(&body).map_err(|e| {
+            tracing::error!(endpoint = endpoint, err = %e, body_preview = %&body[..body.len().min(1024)], "failed to decode response");
             LlaveError::Json(e)
         })
     }
@@ -430,7 +530,7 @@ impl LlaveClient {
         let mut req = self
             .client
             .post(&url)
-            .header("TrazasApp", &self.trace_id)
+            .header("TrazasApp", self.trazas_app_header())
             .form(&[
                 ("sistema_operativo", OS_NAME),
                 ("version_os", OS_VERSION),
@@ -466,7 +566,7 @@ impl LlaveClient {
             };
             tracing::info!(redirect_to = %next_url, "activation redirect");
             let cookie_header = self.cookie_header();
-            let mut next = self.client.get(&next_url).header("TrazasApp", &self.trace_id);
+            let mut next = self.client.get(&next_url).header("TrazasApp", self.trazas_app_header());
             if !cookie_header.is_empty() {
                 next = next.header(reqwest::header::COOKIE, &cookie_header);
             }
@@ -539,7 +639,7 @@ impl LlaveClient {
         let cookie_header = self.cookie_header();
         let mut req = self.client
             .post(&url)
-            .header("TrazasApp", &self.trace_id)
+            .header("TrazasApp", self.trazas_app_header())
             .form(&[
                 ("NIF", nif),
                 ("FECHA", fecha),
@@ -591,7 +691,7 @@ impl LlaveClient {
             );
 
             let cookie_header = self.cookie_header();
-            let mut next = self.client.get(&next_url).header("TrazasApp", &self.trace_id);
+            let mut next = self.client.get(&next_url).header("TrazasApp", self.trazas_app_header());
             if !cookie_header.is_empty() {
                 next = next.header(reqwest::header::COOKIE, &cookie_header);
             }
@@ -716,9 +816,12 @@ impl LlaveClient {
     ///
     /// Calls ObtenerClaveMovilSMS on www12. Returns `timeStampAltaSms`,
     /// `tokenClaveMovilSms`, `horaPeticion`, and the masked `movil` number.
+    ///
+    /// Uses bare POST (no form encoding) matching the Android app's Retrofit
+    /// `@POST` without `@FormUrlEncoded`.
     pub async fn request_sms_code(&self) -> Result<ApiResponse<ObtenerSmsResponse>> {
         let url = format!("{BASE_URL_WWW12}/wlpl/MOVI-P24H/ObtenerClaveMovilSMS");
-        self.post_form("request_sms_code", &url, &[]).await
+        self.post_empty("request_sms_code", &url).await
     }
 
     /// Validate SMS verification code.
