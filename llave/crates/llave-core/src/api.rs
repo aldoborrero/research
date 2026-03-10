@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use std::sync::Mutex;
 
 const BASE_URL: &str = "https://www2.agenciatributaria.gob.es";
-const BASE_URL_WWW6: &str = "https://www6.agenciatributaria.gob.es";
+const BASE_URL_WWW1: &str = "https://www1.agenciatributaria.gob.es";
 const BASE_URL_WWW12: &str = "https://www12.agenciatributaria.gob.es";
 
 const APP_VERSION: &str = "6.2.5";
@@ -111,7 +111,7 @@ pub struct ClaveRequestStateResponse {
 /// Manages cookies manually across all `*.agenciatributaria.gob.es` subdomains,
 /// matching the Android app's `CookiePolicy.ACCEPT_ALL` + `setCookiesInJar()`.
 /// Reqwest's built-in cookie store follows RFC domain-matching rules which
-/// prevents cookies set by `www2` from being sent to `www6` or `www12`.
+/// prevents cookies set by `www2` from being sent to `www1` or `www12`.
 pub struct LlaveClient {
     client: Client,
     trace_id: String,
@@ -122,7 +122,7 @@ pub struct LlaveClient {
 impl LlaveClient {
     pub fn new() -> Result<Self> {
         // Do NOT use cookie_store(true) — we manage cookies manually to
-        // propagate them across subdomains (www2 ↔ www12 ↔ www6).
+        // propagate them across subdomains (www2 ↔ www12 ↔ www1).
         // Disable automatic redirects so we can re-attach cookies at each
         // hop (reqwest strips custom headers on cross-origin redirects).
         let client = Client::builder()
@@ -190,7 +190,7 @@ impl LlaveClient {
 
         // Follow redirects manually, re-attaching cookies at each hop.
         // reqwest strips custom headers (Cookie) on cross-origin redirects
-        // (e.g. www6 → www2), so we must handle this ourselves.
+        // (e.g. www1 → www2), so we must handle this ourselves.
         while resp.status().is_redirection() {
             let location = resp
                 .headers()
@@ -362,14 +362,16 @@ impl LlaveClient {
 
     /// Activate device authentication.
     ///
-    /// Uses www6 and the `ClaveActivateAuthenticationSv` endpoint, matching
+    /// Uses www1 (not www6) and the `ClaveActivateAuthenticationSv` endpoint, matching
     /// the Android app's behaviour.
     pub async fn activate_authentication(
         &self,
         device_password: &str,
         token_push: &str,
     ) -> Result<ApiResponse<ActivateResponse>> {
-        let url = format!("{BASE_URL_WWW6}/wlpl/MOVI-P24H/ClaveActivateAuthenticationSv");
+        // The Android app uses www1 (not www1) for this endpoint
+        // (isWww6Domain=false in RequestClaveActivateAuthentication).
+        let url = format!("{BASE_URL_WWW1}/wlpl/MOVI-P24H/ClaveActivateAuthenticationSv");
         self.post_form("activate_authentication", &url, &[
             ("sistema_operativo", OS_NAME),
             ("version_os", OS_VERSION),
