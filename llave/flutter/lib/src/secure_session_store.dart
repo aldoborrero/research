@@ -117,9 +117,21 @@ class SecureSessionStore {
 
   static Future<void> _fileWrite(String value) async {
     final file = _file;
-    await file.parent.create(recursive: true);
-    await file.writeAsString(value, flush: true);
-    await Process.run('chmod', ['600', file.path]);
+    final dir = file.parent;
+    await dir.create(recursive: true);
+    // Set directory to 0700 so only owner can list/traverse.
+    await Process.run('chmod', ['700', dir.path]);
+
+    // Write to a temp file first, set 0600, then rename.
+    // This avoids a window where the file exists with default permissions.
+    final tmp = File('${file.path}.tmp');
+    await tmp.writeAsString(value, flush: true);
+    final chmodResult = await Process.run('chmod', ['600', tmp.path]);
+    if (chmodResult.exitCode != 0) {
+      await tmp.delete();
+      throw StateError('chmod 600 failed: ${chmodResult.stderr}');
+    }
+    await tmp.rename(file.path);
     _log.fine('file write: ${value.length} bytes → ${file.path}');
   }
 
