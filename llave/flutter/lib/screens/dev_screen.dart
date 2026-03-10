@@ -261,6 +261,8 @@ class _DevScreenState extends ConsumerState<DevScreen> {
   IconData _authIcon(AuthState auth) => switch (auth) {
         AuthLoading() => Icons.hourglass_empty,
         AuthUnauthenticated() => Icons.lock_outline,
+        AuthLocked() => Icons.lock,
+        AuthNeedsPin() => Icons.pin,
         AuthAuthenticated() => Icons.lock_open,
         AuthError() => Icons.error_outline,
       };
@@ -268,6 +270,8 @@ class _DevScreenState extends ConsumerState<DevScreen> {
   Color _authColor(AuthState auth) => switch (auth) {
         AuthLoading() => Colors.grey,
         AuthUnauthenticated() => Colors.orange,
+        AuthLocked() => Colors.amber,
+        AuthNeedsPin() => Colors.amber,
         AuthAuthenticated() => Colors.green,
         AuthError() => Colors.red,
       };
@@ -275,6 +279,8 @@ class _DevScreenState extends ConsumerState<DevScreen> {
   String _authLabel(AuthState auth) => switch (auth) {
         AuthLoading() => 'Loading...',
         AuthUnauthenticated() => 'Unauthenticated',
+        AuthLocked() => 'Locked (PIN required)',
+        AuthNeedsPin() => 'Needs PIN setup',
         AuthAuthenticated() => 'Authenticated',
         AuthError(message: final m) => 'Error: $m',
       };
