@@ -35,35 +35,43 @@ class HomeScreen extends ConsumerWidget {
           // Quick actions (only if authenticated)
           if (session != null) ...[
             Text('Quick Actions', style: theme.textTheme.titleMedium),
-            const SizedBox(height: 8),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
+            const SizedBox(height: 12),
+            GridView.count(
+              crossAxisCount: 2,
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              mainAxisSpacing: 12,
+              crossAxisSpacing: 12,
               children: [
-                _ActionChip(
+                _ActionTile(
                   icon: Icons.pin,
                   label: 'Request PIN',
                   onTap: () => context.go('/pin'),
                 ),
-                _ActionChip(
-                  icon: Icons.notifications,
+                _ActionTile(
+                  icon: Icons.notifications_outlined,
                   label: 'Pending',
                   onTap: () => context.go('/pending'),
                 ),
-                _ActionChip(
+                _ActionTile(
                   icon: Icons.history,
                   label: 'History',
                   onTap: () => context.go('/history'),
                 ),
-                _ActionChip(
-                  icon: Icons.qr_code,
+                _ActionTile(
+                  icon: Icons.qr_code_2,
                   label: 'QR Auth',
                   onTap: () => context.go('/qr'),
                 ),
-                _ActionChip(
-                  icon: Icons.person,
+                _ActionTile(
+                  icon: Icons.person_outline,
                   label: 'My Data',
                   onTap: () => context.go('/mydata'),
+                ),
+                _ActionTile(
+                  icon: Icons.settings_outlined,
+                  label: 'Settings',
+                  onTap: () => context.go('/settings'),
                 ),
               ],
             ),
@@ -215,12 +223,12 @@ class _InfoRow extends StatelessWidget {
   }
 }
 
-class _ActionChip extends StatelessWidget {
+class _ActionTile extends StatelessWidget {
   final IconData icon;
   final String label;
   final VoidCallback onTap;
 
-  const _ActionChip({
+  const _ActionTile({
     required this.icon,
     required this.label,
     required this.onTap,
@@ -228,10 +236,27 @@ class _ActionChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ActionChip(
-      avatar: Icon(icon, size: 18),
-      label: Text(label),
-      onPressed: onTap,
+    final theme = Theme.of(context);
+    return Card(
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(icon, size: 36, color: theme.colorScheme.primary),
+              const SizedBox(height: 12),
+              Text(
+                label,
+                style: theme.textTheme.titleSmall,
+                textAlign: TextAlign.center,
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
