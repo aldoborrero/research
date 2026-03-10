@@ -52,9 +52,18 @@ const _protectedRoutes = {'/', '/pin', '/pending', '/history', '/settings', '/qr
 /// Routes that should not be accessible when already authenticated.
 const _guestOnlyRoutes = {'/activate', '/dni-auth'};
 
-GoRouter _buildRouter(WidgetRef ref) {
+/// Riverpod provider for the app router.
+///
+/// Uses [refreshListenable] so go_router re-evaluates redirects when the auth
+/// state changes — without recreating the entire router (which would reset
+/// navigation to /splash and re-run init).
+final routerProvider = Provider<GoRouter>((ref) {
+  // Bridge between Riverpod and ChangeNotifier so go_router can listen.
+  final notifier = _AuthChangeNotifier(ref);
+
   return GoRouter(
     initialLocation: '/splash',
+    refreshListenable: notifier,
     redirect: (context, state) {
       final auth = ref.read(authProvider);
       final location = state.uri.path;
@@ -97,6 +106,14 @@ GoRouter _buildRouter(WidgetRef ref) {
       ),
     ],
   );
+});
+
+/// Bridges Riverpod [authProvider] changes into a [ChangeNotifier] for
+/// go_router's [refreshListenable].
+class _AuthChangeNotifier extends ChangeNotifier {
+  _AuthChangeNotifier(Ref ref) {
+    ref.listen(authProvider, (_, __) => notifyListeners());
+  }
 }
 
 class LlaveApp extends ConsumerWidget {
@@ -105,10 +122,7 @@ class LlaveApp extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final themeMode = ref.watch(themeModeProvider);
-
-    // Rebuild router when auth state changes so redirects re-evaluate.
-    ref.watch(authProvider);
-    final router = _buildRouter(ref);
+    final router = ref.watch(routerProvider);
 
     return MaterialApp.router(
       title: 'Llave AEAT',
