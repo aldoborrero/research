@@ -44,21 +44,6 @@ class HomeScreen extends ConsumerWidget {
               crossAxisSpacing: 12,
               children: [
                 _ActionTile(
-                  icon: Icons.pin,
-                  label: 'Request PIN',
-                  onTap: () => context.go('/pin'),
-                ),
-                _ActionTile(
-                  icon: Icons.notifications_outlined,
-                  label: 'Pending',
-                  onTap: () => context.go('/pending'),
-                ),
-                _ActionTile(
-                  icon: Icons.history,
-                  label: 'History',
-                  onTap: () => context.go('/history'),
-                ),
-                _ActionTile(
                   icon: Icons.qr_code_2,
                   label: 'QR Auth',
                   onTap: () => context.go('/qr'),
@@ -67,11 +52,6 @@ class HomeScreen extends ConsumerWidget {
                   icon: Icons.person_outline,
                   label: 'My Data',
                   onTap: () => context.go('/mydata'),
-                ),
-                _ActionTile(
-                  icon: Icons.settings_outlined,
-                  label: 'Settings',
-                  onTap: () => context.go('/settings'),
                 ),
               ],
             ),
