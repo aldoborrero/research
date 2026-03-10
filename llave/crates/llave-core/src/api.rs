@@ -380,7 +380,7 @@ impl LlaveClient {
         let cookie_header = self.cookie_header();
         let mut req = no_redirect
             .post(&url)
-            .header("TrazasApp", &cookie_header)
+            .header("TrazasApp", &self.trace_id)
             .form(&[
                 ("NIF", nif),
                 ("FECHA", fecha),
