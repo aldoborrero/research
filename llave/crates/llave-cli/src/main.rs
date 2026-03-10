@@ -242,8 +242,8 @@ async fn run(cli: &Cli) -> Result<()> {
             let client = LlaveClient::new()?;
             let device_id = uuid::Uuid::new_v4().to_string();
 
-            let _starting = client.starting(&device_id, &nif, "").await?;
-            let resp = client.is_nif_activated(&device_id, &nif).await?;
+            let _starting = client.clave_starting(&device_id, &nif, "").await?;
+            let resp = client.clave_is_nif_activated(&device_id, &nif).await?;
 
             output(
                 cli,
@@ -329,7 +329,7 @@ async fn run(cli: &Cli) -> Result<()> {
             let client = LlaveClient::new()?;
 
             let _starting = client
-                .starting(&session.device_id, &session.nif, "")
+                .clave_starting(&session.device_id, &session.nif, "")
                 .await?;
 
             let resp = client
@@ -354,7 +354,7 @@ async fn run(cli: &Cli) -> Result<()> {
             let client = LlaveClient::new()?;
 
             let _starting = client
-                .starting(&session.device_id, &session.nif, "")
+                .clave_starting(&session.device_id, &session.nif, "")
                 .await?;
 
             let resp = client
@@ -388,7 +388,7 @@ async fn run(cli: &Cli) -> Result<()> {
             let client = LlaveClient::new()?;
 
             let _starting = client
-                .starting(&session.device_id, &session.nif, "")
+                .clave_starting(&session.device_id, &session.nif, "")
                 .await?;
 
             let resp = client

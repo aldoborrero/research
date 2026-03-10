@@ -34,7 +34,7 @@ pub async fn activate_device(
     device_password: &str,
 ) -> Result<Session> {
     tracing::info!("activating device");
-    let starting = client.starting(device_id, nif, "").await?;
+    let starting = client.clave_starting(device_id, nif, "").await?;
     if starting.status != "OK" {
         return Err(crate::error::LlaveError::Api {
             status: starting.status,
@@ -43,7 +43,7 @@ pub async fn activate_device(
         });
     }
 
-    let activated = client.is_nif_activated(device_id, nif).await?;
+    let activated = client.clave_is_nif_activated(device_id, nif).await?;
     tracing::debug!(nif_status = %activated.status, "nif check");
 
     let _activate = client.activate_authentication(device_password, "").await?;
@@ -66,7 +66,7 @@ pub async fn activate_device(
 pub async fn request_pin(client: &LlaveClient, session: &Session) -> Result<(String, String)> {
     tracing::info!("requesting pin");
     let _starting = client
-        .starting(&session.device_id, &session.nif, "")
+        .clave_starting(&session.device_id, &session.nif, "")
         .await?;
 
     let resp = client
@@ -357,7 +357,7 @@ pub async fn poll_pending_requests(
     session: &Session,
 ) -> Result<serde_json::Value> {
     let _starting = client
-        .starting(&session.device_id, &session.nif, "")
+        .clave_starting(&session.device_id, &session.nif, "")
         .await?;
 
     let state = client
@@ -401,7 +401,7 @@ pub async fn confirm_authentication(
 ) -> Result<serde_json::Value> {
     tracing::info!("confirming auth request");
     let _starting = client
-        .starting(&session.device_id, &session.nif, "")
+        .clave_starting(&session.device_id, &session.nif, "")
         .await?;
 
     let resp = client
@@ -429,7 +429,7 @@ pub async fn reject_authentication(
 ) -> Result<serde_json::Value> {
     tracing::info!("rejecting auth request");
     let _starting = client
-        .starting(&session.device_id, &session.nif, "")
+        .clave_starting(&session.device_id, &session.nif, "")
         .await?;
 
     let resp = client
