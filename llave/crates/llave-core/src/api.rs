@@ -232,17 +232,23 @@ impl LlaveClient {
         let appmovil = get("appmovil");
         let sgat_lang = get("sgat-language");
 
+        // Field names must match the Kotlin @Serializable CookiesInApp class:
+        //   cookiesWww1Gestor  = CERT_WWW1 " y " CERT_WWW1V  (from CookieJar)
+        //   cookiesWww6Gestor  = pin24H    " y " pin24V      (from CookieJar)
+        //   cookiesWww12Gestor = WWW12     " y " WWW12V      (from CookieJar)
+        //   cookiesAppMovilGestor / cookiesSgatLanguageGestor
+        //   *Local variants are the same values from keychain storage.
         serde_json::to_string(&serde_json::json!({
-            "CERT_WWW1": format!("{cert1} y {cert1v}"),
-            "pin24H": format!("{pin24h} y {pin24v}"),
-            "WWW12": format!("{www12} y {www12v}"),
-            "appmovil": appmovil,
-            "sgat-language": sgat_lang,
-            "CERT_WWW1_keychain": format!("{} y {}", get("CERT_WWW1"), get("CERT_WWW1V")),
-            "pin24H_keychain": format!("{} y {}", get("pin24H"), get("pin24V")),
-            "WWW12_keychain": format!("{} y {}", get("WWW12"), get("WWW12V")),
-            "appmovil_keychain": get("appmovil"),
-            "sgat-language_keychain": get("sgat-language"),
+            "cookiesWww1Gestor": format!("{cert1} y {cert1v}"),
+            "cookiesWww6Gestor": format!("{pin24h} y {pin24v}"),
+            "cookiesWww12Gestor": format!("{www12} y {www12v}"),
+            "cookiesAppMovilGestor": appmovil,
+            "cookiesSgatLanguageGestor": sgat_lang,
+            "cookiesWww1Local": format!("{cert1} y {cert1v}"),
+            "cookiesWww6Local": format!("{pin24h} y {pin24v}"),
+            "cookiesWww12Local": format!("{www12} y {www12v}"),
+            "cookiesAppMovilLocal": appmovil,
+            "cookiesSgatLanguageLocal": sgat_lang,
         }))
         .unwrap_or_else(|_| "{}".into())
     }
@@ -341,12 +347,13 @@ impl LlaveClient {
         url: &str,
     ) -> Result<ApiResponse<T>> {
         let cookie_header = self.cookie_header();
-        tracing::debug!(endpoint = endpoint, url = url, cookies = %cookie_header, "aeat request (empty POST)");
+        let trazas = self.trazas_app_header();
+        tracing::info!(endpoint = endpoint, url = url, cookies = %cookie_header, trazas_app = %trazas, "aeat request (empty POST)");
         let mut req = self
             .client
             .post(url)
-            .header("TrazasApp", self.trazas_app_header())
-            .header(reqwest::header::CONTENT_LENGTH, "0");
+            .header("TrazasApp", &trazas)
+            .body(""); // Empty body → Content-Length: 0, no Content-Type
         if !cookie_header.is_empty() {
             req = req.header(reqwest::header::COOKIE, &cookie_header);
         }
