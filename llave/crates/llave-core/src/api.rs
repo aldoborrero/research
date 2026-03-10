@@ -12,10 +12,13 @@ const APP_VERSION: &str = "6.2.5";
 /// The AEAT server uses this to determine session routing.
 const OS_NAME: &str = "A";
 const OS_VERSION: &str = "14";
-const DEVICE_MODEL: &str = "llave-cli";
+const DEVICE_MODEL: &str = "SM-S928U";
 /// User-Agent matching the Android app format so the AEAT server
 /// recognises us as a mobile client (critical for session handling).
-const USER_AGENT: &str = "APPMovil/Cl@ve/v6.2.5(288)/14/Android/Dalvik/2.1.0";
+/// Format: APPMovil/Cl@ve/v{version}({build})/{os_ver}/Android/{System.getProperty("http.agent")}
+/// The full Dalvik user-agent suffix is required — the truncated version
+/// (without the parenthetical) may be rejected by the server/WAF.
+const USER_AGENT: &str = "APPMovil/Cl@ve/v6.2.5(288)/14/Android/Dalvik/2.1.0 (Linux; U; Android 14; SM-S928U Build/UP1A.231005.007)";
 
 /// Standard response envelope from all Llave API endpoints.
 #[derive(Debug, Deserialize, Serialize)]
@@ -453,18 +456,18 @@ impl LlaveClient {
             ]).await
     }
 
-    /// Initialize a session via ClaveStartingSv on www12.
+    /// Initialize a session via ClaveStartingSv on www2.
     ///
     /// The Android app calls ClaveStartingSv (on www2) at app launch to establish
-    /// device context. www2's MOVI-P24H paths are blocked from public internet,
-    /// but www12 may accept the same endpoint.
+    /// device context. This is the endpoint the real app uses (different from
+    /// LlaveStartingSv which is an older/different endpoint).
     pub async fn clave_starting(
         &self,
         device_id: &str,
         nif: &str,
         token_push: &str,
     ) -> Result<ApiResponse<StartingResponse>> {
-        let url = format!("{BASE_URL_WWW12}/wlpl/MOVI-P24H/ClaveStartingSv");
+        let url = format!("{BASE_URL}/wlpl/MOVI-P24H/ClaveStartingSv");
         self.post_form("clave_starting", &url, &[
                 ("device_id", device_id),
                 ("NIF", nif),

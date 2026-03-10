@@ -123,6 +123,29 @@ pub async fn dni_request_sms(
     fecha: &str,
     soporte: &str,
 ) -> Result<DniSmsPhase1> {
+    // Step 0: Call ClaveStartingSv on www2 to establish device context.
+    // The Android app calls this at app launch (BEFORE DNI auth).
+    // Note: LlaveStartingSv (older endpoint) returned 404, but ClaveStartingSv
+    // (the actual endpoint the Android app uses) might work.
+    let device_id = uuid::Uuid::new_v4().to_string();
+    tracing::info!(device_id = %device_id, "calling ClaveStartingSv (www2) to establish device session");
+    match client.clave_starting(&device_id, nif, "").await {
+        Ok(resp) if resp.status == "OK" => {
+            tracing::info!("ClaveStartingSv succeeded");
+        }
+        Ok(resp) => {
+            tracing::warn!(
+                status = %resp.status,
+                code = resp.codigo_error.as_deref().unwrap_or("?"),
+                message = resp.mensaje.as_deref().unwrap_or("?"),
+                "ClaveStartingSv returned non-OK (continuing anyway)"
+            );
+        }
+        Err(e) => {
+            tracing::warn!(err = %e, "ClaveStartingSv failed (continuing anyway)");
+        }
+    }
+
     // Step 1: DNI/NIE auth (establishes session cookies).
     tracing::info!("authenticating via DNI/NIE");
     client.authenticate_dni_nie(nif, fecha, soporte).await?;
