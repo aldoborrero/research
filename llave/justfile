@@ -1,0 +1,108 @@
+# Llave AEAT — common development commands
+
+# Default: list available recipes
+default:
+    @just --list
+
+# --- Build ---
+
+# Build the CLI binary (debug)
+build-cli:
+    cargo build -p llave-cli
+
+# Build the CLI binary (release)
+build-cli-release:
+    cargo build -p llave-cli --release
+
+# Build the FFI shared library (debug)
+build-ffi:
+    cargo build -p llave-core-ffi
+
+# Build the FFI shared library (release)
+build-ffi-release:
+    cargo build -p llave-core-ffi --release
+
+# Build everything (debug)
+build:
+    cargo build
+
+# Build everything (release)
+build-release:
+    cargo build --release
+
+# --- Check & Lint ---
+
+# Type-check the workspace
+check:
+    cargo check
+
+# Run clippy on the workspace
+lint:
+    cargo clippy -- -D warnings
+
+# Format code
+fmt:
+    cargo fmt
+
+# Check formatting without modifying
+fmt-check:
+    cargo fmt -- --check
+
+# --- Flutter ---
+
+# Generate flutter_rust_bridge bindings
+frb-generate:
+    cd flutter && flutter_rust_bridge_codegen generate
+
+# Build Flutter Linux desktop app (debug)
+flutter-build-linux:
+    cd flutter && flutter build linux
+
+# Build Flutter Linux desktop app (release)
+flutter-build-linux-release:
+    cd flutter && flutter build linux --release
+
+# Run Flutter app on Linux desktop
+flutter-run:
+    cd flutter && flutter run -d linux
+
+# Run Flutter code generation (freezed, json_serializable)
+flutter-codegen:
+    cd flutter && dart run build_runner build --delete-conflicting-outputs
+
+# Get Flutter dependencies
+flutter-deps:
+    cd flutter && flutter pub get
+
+# --- Test ---
+
+# Run Rust tests
+test:
+    cargo test
+
+# Run Flutter tests
+flutter-test:
+    cd flutter && flutter test
+
+# --- Run ---
+
+# Run the CLI (pass args after --)
+run *ARGS:
+    cargo run -p llave-cli -- {{ ARGS }}
+
+# Run the CLI in release mode
+run-release *ARGS:
+    cargo run -p llave-cli --release -- {{ ARGS }}
+
+# --- Clean ---
+
+# Clean Rust build artifacts
+clean:
+    cargo clean
+
+# Clean Flutter build artifacts
+flutter-clean:
+    cd flutter && flutter clean
+
+# Clean everything
+clean-all: clean flutter-clean

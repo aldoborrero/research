@@ -19,6 +19,7 @@ pkgs.mkShell {
     [
       toolchain
       fenixPkgs.rust-analyzer
+      pkgs.just
 
       pkgs.openssl
       pkgs.pkg-config
