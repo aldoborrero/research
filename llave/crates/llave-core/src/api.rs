@@ -379,7 +379,9 @@ impl LlaveClient {
     /// issue a www6 session cookie (JSESSIONID) and potentially link
     /// it to our existing www2/www12 auth cookies.
     async fn establish_www6_session(&self) -> Result<()> {
-        let url = format!("{BASE_URL_WWW6}/wlpl/MOVI-P24H/");
+        // Hit the exact activation endpoint path with GET to get a www6 JSESSIONID
+        // from www6's WebSphere server (different server affinity from www2).
+        let url = format!("{BASE_URL_WWW6}/wlpl/MOVI-P24H/ClaveActivateAuthenticationSv");
         tracing::info!("establishing www6 session");
 
         let cookie_header = self.cookie_header();
