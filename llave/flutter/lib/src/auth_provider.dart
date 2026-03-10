@@ -90,15 +90,10 @@ class AuthNotifier extends StateNotifier<AuthState> {
   ///
   /// Called after activation when the user sets their PIN for the first time.
   Future<void> setPin(String pin) async {
-    try {
-      final sealed = _bridge.encryptSession(pin);
-      await SecureSessionStore.write(sealed);
-      _log.info('session encrypted and persisted');
-      checkSession();
-    } catch (e) {
-      _log.severe('setPin failed: $e');
-      state = AuthError(e.toString());
-    }
+    final sealed = _bridge.encryptSession(pin);
+    await SecureSessionStore.write(sealed);
+    _log.info('session encrypted and persisted');
+    checkSession();
   }
 
   /// Change the PIN protecting the session.

@@ -105,6 +105,41 @@ pub unsafe extern "C" fn llave_validate_nif(nif: *const c_char) -> *mut c_char {
 }
 
 // ---------------------------------------------------------------------------
+// PIN-based session encryption
+// ---------------------------------------------------------------------------
+
+#[no_mangle]
+pub unsafe extern "C" fn llave_encrypt_session(pin: *const c_char) -> *mut c_char {
+    match crate::api::encrypt_session(to_str(pin)) {
+        Ok(v) => ok_json(serde_json::Value::String(v)),
+        Err(e) => err_json(&e),
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn llave_decrypt_and_load_session(
+    sealed: *const c_char,
+    pin: *const c_char,
+) -> *mut c_char {
+    match crate::api::decrypt_and_load_session(to_str(sealed), to_str(pin)) {
+        Ok(_) => ok_json(serde_json::json!(true)),
+        Err(e) => err_json(&e),
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn llave_change_session_pin(
+    sealed: *const c_char,
+    old_pin: *const c_char,
+    new_pin: *const c_char,
+) -> *mut c_char {
+    match crate::api::change_session_pin(to_str(sealed), to_str(old_pin), to_str(new_pin)) {
+        Ok(v) => ok_json(serde_json::Value::String(v)),
+        Err(e) => err_json(&e),
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Async operations (block_on)
 // ---------------------------------------------------------------------------
 
