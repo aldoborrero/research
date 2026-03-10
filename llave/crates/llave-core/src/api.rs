@@ -155,7 +155,11 @@ impl LlaveClient {
 
         Ok(Self {
             client,
-            cookies: Mutex::new(Vec::new()),
+            // Pre-seed with sgat-language cookie, matching the Android app's
+            // CookiesManagerSingleton which always sets this at startup.
+            cookies: Mutex::new(vec![
+                ("sgat-language".into(), "es_ES".into()),
+            ]),
         })
     }
 
@@ -871,17 +875,10 @@ impl LlaveClient {
     /// Calls ObtenerClaveMovilSMS on www12. Returns `timeStampAltaSms`,
     /// `tokenClaveMovilSms`, `horaPeticion`, and the masked `movil` number.
     ///
-    /// The Android app sends a bare POST (@POST without @FormUrlEncoded),
-    /// but the server's servlet may require Content-Type for POST requests.
-    /// Send as form-encoded with sistema_operativo/version fields (same as
-    /// ClaveRequestStateSv, which works) to ensure proper Content-Type.
+    /// The Android app sends a bare POST (@POST without @FormUrlEncoded).
     pub async fn request_sms_code(&self) -> Result<ApiResponse<ObtenerSmsResponse>> {
         let url = format!("{BASE_URL_WWW12}/wlpl/MOVI-P24H/ObtenerClaveMovilSMS");
-        self.post_form("request_sms_code", &url, &[
-            ("sistema_operativo", OS_NAME),
-            ("version_os", OS_VERSION),
-            ("version_app", APP_VERSION),
-        ]).await
+        self.post_empty("request_sms_code", &url).await
     }
 
     /// Validate SMS verification code.
