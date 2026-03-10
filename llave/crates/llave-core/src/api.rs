@@ -129,9 +129,21 @@ impl LlaveClient {
             .form(form)
             .send()
             .await?;
-        let status = resp.status();
-        tracing::debug!(endpoint = endpoint, http_status = %status, "aeat response");
-        Ok(resp.json().await?)
+        let http_status = resp.status();
+        tracing::debug!(endpoint = endpoint, http_status = %http_status, "aeat response");
+
+        let body = resp.text().await?;
+        tracing::debug!(endpoint = endpoint, body_len = body.len(), body_preview = %&body[..body.len().min(512)], "aeat response body");
+
+        serde_json::from_str::<ApiResponse<T>>(&body).map_err(|e| {
+            tracing::error!(
+                endpoint = endpoint,
+                err = %e,
+                body_preview = %&body[..body.len().min(1024)],
+                "failed to decode response as JSON"
+            );
+            LlaveError::Json(e)
+        })
     }
 
     /// Initialize a session with the Llave backend.
