@@ -217,6 +217,23 @@ pub unsafe extern "C" fn llave_dni_authenticate(
 }
 
 #[no_mangle]
+pub unsafe extern "C" fn llave_dni_complete_activation(
+    nif: *const c_char,
+    cookies_json: *const c_char,
+    timestamp_alta_sms: *const c_char,
+    token_clave_movil_sms: *const c_char,
+    sms_pin: *const c_char,
+) -> *mut c_char {
+    api_result_json(rt().block_on(crate::api::dni_complete_activation(
+        to_str(nif),
+        to_str(cookies_json),
+        to_str(timestamp_alta_sms),
+        to_str(token_clave_movil_sms),
+        to_str(sms_pin),
+    )))
+}
+
+#[no_mangle]
 pub unsafe extern "C" fn llave_set_firebase_token(token_push: *const c_char) -> *mut c_char {
     api_result_json(rt().block_on(crate::api::set_firebase_token(to_str(token_push))))
 }

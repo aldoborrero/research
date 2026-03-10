@@ -389,16 +389,13 @@ pub fn validate_nif(nif: String) -> Result<String, String> {
     llave_core::config::validate_nif(&nif).map_err(|e| e.to_string())
 }
 
-/// Authenticate using DNI/NIE weak authentication (no certificate needed)
-/// and then activate the device so that a full session is available.
+/// Phase 1: DNI/NIE auth → registration check → request SMS code.
 ///
-/// Follows the Android app's flow:
-/// 1. `AutenticaDniNieContrasteh` with `modo=json` (proves identity on www2)
-/// 2. `ClaveRequestStateSv` (registration check on www12)
-/// 3. `ClaveActivateAuthenticationSv` (device activation on www6)
+/// Returns the registration state, masked phone number, SMS tokens,
+/// and serialised cookies for phase 2.
 ///
-/// Requires the NIF, the expiry date of the physical DNI card (DD/MM/YYYY),
-/// and the support number printed on the card.
+/// After this call, the user must enter the SMS PIN they receive,
+/// then call [`dni_complete_activation`] with the PIN and cookies.
 #[frb]
 pub async fn dni_authenticate(
     nif: String,
@@ -407,33 +404,86 @@ pub async fn dni_authenticate(
 ) -> Result<FfiApiResult, String> {
     let nif = llave_core::config::validate_nif(&nif).map_err(|e| e.to_string())?;
     let client = llave_core::LlaveClient::new().map_err(|e| e.to_string())?;
-    let device_password = uuid::Uuid::new_v4().to_string();
 
-    match llave_core::auth::dni_activate_device(&client, &nif, &fecha, &soporte, &device_password)
-        .await
-    {
-        Ok((state, session)) => {
-            if let Ok(mut cfg) = llave_core::Config::load() {
-                cfg.nif = Some(nif.clone());
-                cfg.device_id = Some(session.device_id.clone());
-                let _ = cfg.save();
-            }
-            tracing::info!(nif = %session.nif, "DNI/NIE auth + device activation succeeded");
+    match llave_core::auth::dni_request_sms(&client, &nif, &fecha, &soporte).await {
+        Ok(phase1) => {
+            tracing::info!(
+                movil = %phase1.sms.movil,
+                "DNI/NIE auth succeeded — SMS sent"
+            );
             Ok(FfiApiResult {
                 ok: true,
                 data: serde_json::to_string(&serde_json::json!({
-                    "device_id": session.device_id,
-                    "nif": session.nif,
-                    "registrado": state.registrado,
-                    "nivel_registro": state.nivel_registro,
-                    "telefono": state.telefono,
+                    "registrado": phase1.state.registrado,
+                    "nivel_registro": phase1.state.nivel_registro,
+                    "telefono": phase1.state.telefono,
+                    "movil": phase1.sms.movil,
+                    "hora_peticion": phase1.sms.hora_peticion,
+                    "timestamp_alta_sms": phase1.sms.timestamp_alta_sms,
+                    "token_clave_movil_sms": phase1.sms.token_clave_movil_sms,
+                    "cookies_json": phase1.cookies_json,
                 }))
                 .unwrap_or_default(),
                 error: None,
             })
         }
         Err(e) => {
-            tracing::warn!(err = %e, "DNI/NIE auth + activation failed");
+            tracing::warn!(err = %e, "DNI/NIE auth + SMS request failed");
+            Ok(FfiApiResult {
+                ok: false,
+                data: String::new(),
+                error: Some(e.to_string()),
+            })
+        }
+    }
+}
+
+/// Phase 2: Validate SMS code + activate device.
+///
+/// Takes the SMS tokens and cookies from [`dni_authenticate`] (phase 1),
+/// validates the user-entered SMS PIN, then activates the device on www6.
+#[frb]
+pub async fn dni_complete_activation(
+    nif: String,
+    cookies_json: String,
+    timestamp_alta_sms: String,
+    token_clave_movil_sms: String,
+    sms_pin: String,
+) -> Result<FfiApiResult, String> {
+    let nif = llave_core::config::validate_nif(&nif).map_err(|e| e.to_string())?;
+    let client = llave_core::LlaveClient::new().map_err(|e| e.to_string())?;
+    let device_password = uuid::Uuid::new_v4().to_string();
+
+    match llave_core::auth::dni_validate_and_activate(
+        &client,
+        &cookies_json,
+        &nif,
+        &timestamp_alta_sms,
+        &token_clave_movil_sms,
+        &sms_pin,
+        &device_password,
+    )
+    .await
+    {
+        Ok(session) => {
+            if let Ok(mut cfg) = llave_core::Config::load() {
+                cfg.nif = Some(nif.clone());
+                cfg.device_id = Some(session.device_id.clone());
+                let _ = cfg.save();
+            }
+            tracing::info!(nif = %session.nif, "DNI/NIE + SMS activation succeeded");
+            Ok(FfiApiResult {
+                ok: true,
+                data: serde_json::to_string(&serde_json::json!({
+                    "device_id": session.device_id,
+                    "nif": session.nif,
+                }))
+                .unwrap_or_default(),
+                error: None,
+            })
+        }
+        Err(e) => {
+            tracing::warn!(err = %e, "DNI/NIE SMS validation + activation failed");
             Ok(FfiApiResult {
                 ok: false,
                 data: String::new(),

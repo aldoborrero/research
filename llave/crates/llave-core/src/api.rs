@@ -111,6 +111,18 @@ pub struct ClaveRequestStateResponse {
     pub telefono: Option<String>,
 }
 
+/// Response payload from ObtenerClaveMovilSMS.
+#[derive(Debug, Deserialize, Serialize)]
+pub struct ObtenerSmsResponse {
+    #[serde(rename = "timeStampAltaSms")]
+    pub timestamp_alta_sms: String,
+    #[serde(rename = "tokenClaveMovilSms")]
+    pub token_clave_movil_sms: String,
+    #[serde(rename = "horaPeticion")]
+    pub hora_peticion: String,
+    pub movil: String,
+}
+
 /// The Llave API client.
 ///
 /// Manages cookies manually across all `*.agenciatributaria.gob.es` subdomains,
@@ -150,6 +162,26 @@ impl LlaveClient {
             trace_id,
             cookies: Mutex::new(Vec::new()),
         })
+    }
+
+    /// Export cookies as JSON for persistence across FFI calls.
+    pub fn export_cookies(&self) -> String {
+        let cookies = self.cookies.lock().unwrap();
+        serde_json::to_string(&*cookies).unwrap_or_else(|_| "[]".into())
+    }
+
+    /// Import cookies from a previously exported JSON string.
+    pub fn import_cookies(&self, json: &str) {
+        if let Ok(imported) = serde_json::from_str::<Vec<(String, String)>>(json) {
+            let mut cookies = self.cookies.lock().unwrap();
+            for (name, value) in imported {
+                if let Some(existing) = cookies.iter_mut().find(|(k, _)| k == &name) {
+                    existing.1 = value;
+                } else {
+                    cookies.push((name, value));
+                }
+            }
+        }
     }
 
     /// Build the `Cookie` header value from all stored cookies.
@@ -376,61 +408,6 @@ impl LlaveClient {
             ("version_os", OS_VERSION),
             ("version_app", APP_VERSION),
         ]).await
-    }
-
-    /// Establish a session on www6 by making a GET request.
-    ///
-    /// The Android app gets a www6 session through WebView browsing.
-    /// We replicate this by hitting a www6 URL, which lets the server
-    /// issue a www6 session cookie (JSESSIONID) and potentially link
-    /// it to our existing www2/www12 auth cookies.
-    async fn establish_www6_session(&self) -> Result<()> {
-        // Hit the exact activation endpoint path with GET to get a www6 JSESSIONID
-        // from www6's WebSphere server (different server affinity from www2).
-        let url = format!("{BASE_URL_WWW6}/wlpl/MOVI-P24H/ClaveActivateAuthenticationSv");
-        tracing::info!("establishing www6 session");
-
-        let cookie_header = self.cookie_header();
-        let mut req = self.client.get(&url).header("TrazasApp", &self.trace_id);
-        if !cookie_header.is_empty() {
-            req = req.header(reqwest::header::COOKIE, &cookie_header);
-        }
-
-        let mut resp = req.send().await?;
-        tracing::info!(http_status = %resp.status(), "www6 session GET response");
-        self.capture_cookies(&resp);
-
-        // Follow redirects (www6 might redirect to an auth/session page).
-        let mut hops = 0u32;
-        while resp.status().is_redirection() && hops < 10 {
-            let location = resp
-                .headers()
-                .get(reqwest::header::LOCATION)
-                .and_then(|v| v.to_str().ok())
-                .unwrap_or_default()
-                .to_string();
-            if location.is_empty() {
-                break;
-            }
-            let next_url = if location.starts_with("http") {
-                location.clone()
-            } else {
-                let base = resp.url().origin().unicode_serialization();
-                format!("{base}{location}")
-            };
-            tracing::info!(redirect_to = %next_url, "www6 session redirect");
-            let cookie_header = self.cookie_header();
-            let mut next = self.client.get(&next_url).header("TrazasApp", &self.trace_id);
-            if !cookie_header.is_empty() {
-                next = next.header(reqwest::header::COOKIE, &cookie_header);
-            }
-            resp = next.send().await?;
-            self.capture_cookies(&resp);
-            hops += 1;
-        }
-
-        tracing::info!(cookies = %self.cookie_header(), "www6 session cookies after bridge");
-        Ok(())
     }
 
     /// Activate device authentication.
@@ -736,7 +713,10 @@ impl LlaveClient {
     }
 
     /// Request SMS verification code for device activation.
-    pub async fn request_sms_code(&self) -> Result<ApiResponse<serde_json::Value>> {
+    ///
+    /// Calls ObtenerClaveMovilSMS on www12. Returns `timeStampAltaSms`,
+    /// `tokenClaveMovilSms`, `horaPeticion`, and the masked `movil` number.
+    pub async fn request_sms_code(&self) -> Result<ApiResponse<ObtenerSmsResponse>> {
         let url = format!("{BASE_URL_WWW12}/wlpl/MOVI-P24H/ObtenerClaveMovilSMS");
         self.post_form("request_sms_code", &url, &[]).await
     }

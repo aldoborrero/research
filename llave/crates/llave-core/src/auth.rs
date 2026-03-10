@@ -95,12 +95,162 @@ pub async fn authenticate_dni(
     client.authenticate_dni_nie(nif, fecha, soporte).await
 }
 
-/// DNI/NIE authentication + device activation (full flow).
+/// Result of phase 1: DNI auth + registration check + SMS request.
 ///
-/// Matches the Android app's sequence:
+/// Contains the registration state, SMS metadata for validation,
+/// and serialised cookies to resume the session in phase 2.
+pub struct DniSmsPhase1 {
+    pub state: crate::api::ClaveRequestStateResponse,
+    pub sms: crate::api::ObtenerSmsResponse,
+    /// Serialised cookies — pass to [`dni_validate_and_activate`] to resume.
+    pub cookies_json: String,
+}
+
+/// Phase 1: DNI/NIE auth → registration check → request SMS code.
+///
+/// Matches the Android app's sequence up to the point where the user
+/// must enter the SMS PIN:
 /// 1. `AutenticaDniNieContrasteh` (DNI/NIE weak auth on www2)
 /// 2. `ClaveRequestStateSv` (registration check on www12)
-/// 3. `ClaveActivateAuthenticationSv` (device activation on www6)
+/// 3. `ObtenerClaveMovilSMS` (trigger SMS on www12)
+///
+/// Returns [`DniSmsPhase1`] with the SMS metadata and serialised cookies.
+/// The caller should display the masked phone number to the user, collect
+/// the SMS PIN, then call [`dni_validate_and_activate`] with the PIN.
+pub async fn dni_request_sms(
+    client: &LlaveClient,
+    nif: &str,
+    fecha: &str,
+    soporte: &str,
+) -> Result<DniSmsPhase1> {
+    // Step 1: DNI/NIE auth (establishes session cookies).
+    tracing::info!("authenticating via DNI/NIE");
+    client.authenticate_dni_nie(nif, fecha, soporte).await?;
+    tracing::info!("DNI/NIE auth complete (session cookies captured)");
+
+    // Step 2: Check registration state (uses session cookies from step 1).
+    tracing::info!("checking registration state");
+    let state_resp = client.clave_request_state().await?;
+    if state_resp.status != "OK" {
+        return Err(crate::error::LlaveError::Api {
+            status: state_resp.status,
+            code: state_resp.codigo_error.unwrap_or_default(),
+            message: state_resp.mensaje.unwrap_or_else(|| "Registration state check failed".into()),
+        });
+    }
+    let state = state_resp.respuesta.ok_or_else(|| crate::error::LlaveError::Api {
+        status: "OK".into(),
+        code: String::new(),
+        message: "Empty ClaveRequestState response".into(),
+    })?;
+    tracing::info!(
+        registrado = state.registrado.as_deref().unwrap_or("?"),
+        telefono = state.telefono.as_deref().unwrap_or("?"),
+        nivel = state.nivel_registro.as_deref().unwrap_or("?"),
+        "registration state"
+    );
+
+    // Step 3: Request SMS code (triggers SMS to user's registered phone).
+    tracing::info!("requesting SMS verification code");
+    let sms_resp = client.request_sms_code().await?;
+    if sms_resp.status != "OK" {
+        return Err(crate::error::LlaveError::Api {
+            status: sms_resp.status,
+            code: sms_resp.codigo_error.unwrap_or_default(),
+            message: sms_resp.mensaje.unwrap_or_else(|| "SMS request failed".into()),
+        });
+    }
+    let sms = sms_resp.respuesta.ok_or_else(|| crate::error::LlaveError::Api {
+        status: "OK".into(),
+        code: String::new(),
+        message: "Empty ObtenerClaveMovilSMS response".into(),
+    })?;
+    tracing::info!(
+        movil = %sms.movil,
+        hora = %sms.hora_peticion,
+        "SMS code sent"
+    );
+
+    // Export cookies so they can be restored in phase 2.
+    let cookies_json = client.export_cookies();
+
+    Ok(DniSmsPhase1 {
+        state,
+        sms,
+        cookies_json,
+    })
+}
+
+/// Phase 2: Validate SMS code → activate device on www6.
+///
+/// Resumes the session from phase 1 using the serialised cookies,
+/// validates the user-entered SMS PIN, then activates the device.
+///
+/// 4. `ValidarClaveMovilSMS` (validate SMS code on www12 → sets pin24H cookie)
+/// 5. `ClaveActivateAuthenticationSv` (device activation on www6)
+pub async fn dni_validate_and_activate(
+    client: &LlaveClient,
+    cookies_json: &str,
+    nif: &str,
+    timestamp_alta_sms: &str,
+    token_clave_movil_sms: &str,
+    sms_pin: &str,
+    device_password: &str,
+) -> Result<Session> {
+    // Restore session cookies from phase 1.
+    client.import_cookies(cookies_json);
+    tracing::info!("restored session cookies from phase 1");
+
+    // Step 4: Validate SMS code (sets pin24H cookie on www12).
+    tracing::info!("validating SMS code");
+    let validate_resp = client
+        .validate_sms_code(timestamp_alta_sms, token_clave_movil_sms, sms_pin)
+        .await?;
+    if validate_resp.status != "OK" {
+        return Err(crate::error::LlaveError::Api {
+            status: validate_resp.status,
+            code: validate_resp.codigo_error.unwrap_or_default(),
+            message: validate_resp.mensaje.unwrap_or_else(|| "SMS validation failed".into()),
+        });
+    }
+    tracing::info!("SMS code validated (pin24H cookie should be set)");
+
+    // Step 5: Activate device on www6 (now has pin24H cookie).
+    tracing::info!("activating device");
+    let activate_resp = client.activate_authentication(device_password, "").await?;
+    if activate_resp.status != "OK" {
+        return Err(crate::error::LlaveError::Api {
+            status: activate_resp.status,
+            code: activate_resp.codigo_error.unwrap_or_default(),
+            message: activate_resp.mensaje.unwrap_or_else(|| "Device activation failed".into()),
+        });
+    }
+
+    let activate_data = activate_resp.respuesta.ok_or_else(|| crate::error::LlaveError::Api {
+        status: "OK".into(),
+        code: String::new(),
+        message: "Empty activation response".into(),
+    })?;
+
+    let device_id = activate_data.device_id.unwrap_or_default();
+    let session = Session {
+        device_id,
+        nif: nif.to_string(),
+        device_password: device_password.to_string(),
+        firebase_token: None,
+        created_at: chrono::Utc::now().to_rfc3339(),
+    };
+    session.save()?;
+    tracing::info!("device activated via DNI/NIE + SMS flow");
+
+    Ok(session)
+}
+
+/// DNI/NIE authentication + device activation (legacy single-call flow).
+///
+/// **Deprecated**: Use [`dni_request_sms`] + [`dni_validate_and_activate`]
+/// instead. This function skips the required SMS verification step and will
+/// fail with an HTML response from www6.
 pub async fn dni_activate_device(
     client: &LlaveClient,
     nif: &str,
@@ -109,8 +259,6 @@ pub async fn dni_activate_device(
     device_password: &str,
 ) -> Result<(crate::api::ClaveRequestStateResponse, Session)> {
     // Step 1: DNI/NIE auth (establishes session cookies).
-    // The endpoint returns HTML, not JSON — success is determined by whether
-    // session cookies were set.  Errors surface as HTTP/network failures.
     tracing::info!("authenticating via DNI/NIE");
     client.authenticate_dni_nie(nif, fecha, soporte).await?;
     tracing::info!("DNI/NIE auth complete (session cookies captured)");
@@ -138,6 +286,7 @@ pub async fn dni_activate_device(
     );
 
     // Step 3: Activate device (uses session cookies from steps 1+2).
+    // NOTE: This will fail if pin24H cookie is not set (SMS verification skipped).
     tracing::info!("activating device");
     let activate_resp = client.activate_authentication(device_password, "").await?;
     if activate_resp.status != "OK" {
