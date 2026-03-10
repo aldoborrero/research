@@ -123,9 +123,12 @@ impl LlaveClient {
     pub fn new() -> Result<Self> {
         // Do NOT use cookie_store(true) — we manage cookies manually to
         // propagate them across subdomains (www2 ↔ www12 ↔ www6).
+        // Disable automatic redirects so we can re-attach cookies at each
+        // hop (reqwest strips custom headers on cross-origin redirects).
         let client = Client::builder()
             .user_agent(format!("llave-cli/{APP_VERSION}"))
             .timeout(std::time::Duration::from_secs(190))
+            .redirect(reqwest::redirect::Policy::none())
             .build()?;
 
         let trace_id = uuid::Uuid::new_v4().to_string();
@@ -181,12 +184,42 @@ impl LlaveClient {
             req = req.header(reqwest::header::COOKIE, &cookie_header);
         }
 
-        let resp = req.send().await?;
-        let http_status = resp.status();
-        tracing::debug!(endpoint = endpoint, http_status = %http_status, "aeat response");
-
-        // Capture cookies before consuming the response body.
+        let mut resp = req.send().await?;
+        tracing::debug!(endpoint = endpoint, http_status = %resp.status(), "aeat response");
         self.capture_cookies(&resp);
+
+        // Follow redirects manually, re-attaching cookies at each hop.
+        // reqwest strips custom headers (Cookie) on cross-origin redirects
+        // (e.g. www6 → www2), so we must handle this ourselves.
+        while resp.status().is_redirection() {
+            let location = resp
+                .headers()
+                .get(reqwest::header::LOCATION)
+                .and_then(|v| v.to_str().ok())
+                .unwrap_or_default()
+                .to_string();
+            if location.is_empty() {
+                break;
+            }
+
+            let next_url = if location.starts_with("http") {
+                location.clone()
+            } else {
+                let base = resp.url().origin().unicode_serialization();
+                format!("{base}{location}")
+            };
+
+            tracing::debug!(endpoint = endpoint, redirect_to = %next_url, "following redirect");
+
+            let cookie_header = self.cookie_header();
+            let mut next = self.client.get(&next_url).header("TrazasApp", &self.trace_id);
+            if !cookie_header.is_empty() {
+                next = next.header(reqwest::header::COOKIE, &cookie_header);
+            }
+            resp = next.send().await?;
+            tracing::debug!(endpoint = endpoint, http_status = %resp.status(), "redirect response");
+            self.capture_cookies(&resp);
+        }
 
         let body = resp.text().await?;
         tracing::debug!(endpoint = endpoint, body_len = body.len(), body_preview = %&body[..body.len().min(512)], "aeat response body");
@@ -383,16 +416,10 @@ impl LlaveClient {
         );
         tracing::debug!(endpoint = "authenticate_dni_nie", "aeat request");
 
-        // Build a one-off client that does NOT follow redirects so we can
-        // capture cookies from every hop in the redirect chain.
-        let no_redirect = Client::builder()
-            .user_agent(format!("llave-cli/{APP_VERSION}"))
-            .timeout(std::time::Duration::from_secs(190))
-            .redirect(reqwest::redirect::Policy::none())
-            .build()?;
-
+        // The main client already has redirect(Policy::none()), so we
+        // can use it directly and follow redirects manually.
         let cookie_header = self.cookie_header();
-        let mut req = no_redirect
+        let mut req = self.client
             .post(&url)
             .header("TrazasApp", &self.trace_id)
             .form(&[
@@ -446,7 +473,7 @@ impl LlaveClient {
             );
 
             let cookie_header = self.cookie_header();
-            let mut next = no_redirect.get(&next_url);
+            let mut next = self.client.get(&next_url).header("TrazasApp", &self.trace_id);
             if !cookie_header.is_empty() {
                 next = next.header(reqwest::header::COOKIE, &cookie_header);
             }
