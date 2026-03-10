@@ -1,6 +1,6 @@
 # llave
 
-Alternative implementation of **Llave AEAT** — Spain's digital identity system for interacting with public administration services. CLI, web, and mobile clients sharing a single Rust core.
+Alternative implementation of **Llave AEAT** — Spain's digital identity system for interacting with public administration services. CLI and Flutter (mobile/desktop) clients sharing a single Rust core.
 
 ## Features
 
@@ -13,8 +13,7 @@ Alternative implementation of **Llave AEAT** — Spain's digital identity system
 - **Operations history**: Browse past authentication operations
 - **Structured output**: JSON by default, `--plain` for human-readable text
 - **Secure storage**: Credentials stored via system keyring (fallback to XDG data dir)
-- **Web interface**: Browser-based UI with real-time SSE updates for pending requests
-- **Mobile apps**: Flutter (iOS + Android) powered by the same Rust core via FFI
+- **Flutter apps**: iOS, Android, and desktop powered by the same Rust core via FFI
 
 ## Project Structure
 
@@ -22,9 +21,8 @@ Alternative implementation of **Llave AEAT** — Spain's digital identity system
 crates/
 ├── llave-core/       # Shared Rust library: API client, auth flows, config, crypto, session
 ├── llave-core-ffi/   # FFI bridge layer for Flutter (flutter_rust_bridge)
-├── llave-cli/        # CLI binary (`llave`)
-└── llave-web/        # Web server binary (`llave-web`) with embedded frontend
-flutter/              # Flutter mobile app (iOS, Android, desktop)
+└── llave-cli/        # CLI binary (`llave`)
+flutter/              # Flutter app (iOS, Android, desktop)
 ```
 
 ## Installation
@@ -32,8 +30,7 @@ flutter/              # Flutter mobile app (iOS, Android, desktop)
 ### With Nix (recommended)
 
 ```bash
-nix run github:aldoborrero/research#llave-cli   # CLI
-nix run github:aldoborrero/research#llave-web   # Web UI
+nix run github:aldoborrero/research#llave-cli
 ```
 
 ### Development shell
@@ -46,8 +43,7 @@ cargo build --release
 ### From source
 
 ```bash
-cargo install --path crates/llave-cli   # CLI
-cargo install --path crates/llave-web   # Web UI
+cargo install --path crates/llave-cli
 ```
 
 ## Usage
@@ -134,20 +130,6 @@ llave qr --value "qr-code-content"
 ```bash
 llave logout
 ```
-
-### Web interface
-
-Start the web server (requires an active session from `llave activate`):
-
-```bash
-llave-web
-```
-
-Then open `http://127.0.0.1:3000` in your browser. The web UI provides:
-
-- Real-time pending request notifications via Server-Sent Events (SSE)
-- PIN requests, QR auth, history, and account data views
-- Confirm/reject pending authentication requests from the browser
 
 ## Output formats
 

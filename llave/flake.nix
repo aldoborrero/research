@@ -1,5 +1,5 @@
 {
-  description = "Llave AEAT - Spain's digital identity authentication tools (CLI + Web)";
+  description = "Llave AEAT - Spain's digital identity authentication tools (CLI + Flutter)";
 
   inputs = {
     blueprint.url = "github:numtide/blueprint";
