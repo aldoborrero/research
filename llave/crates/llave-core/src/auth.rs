@@ -123,19 +123,58 @@ pub async fn dni_request_sms(
     fecha: &str,
     soporte: &str,
 ) -> Result<DniSmsPhase1> {
-    // Step 0: Call starting() to establish a device session on the server.
-    // The Android app always calls LlaveStartingSv at app launch, which sets
-    // server-side context that ObtenerClaveMovilSMS depends on.
+    // Step 0: Call starting to establish a device session on the server.
+    // The Android app always calls ClaveStartingSv at app launch, which sets
+    // server-side context that ObtenerClaveMovilSMS may depend on.
+    // Try www12 first (ClaveStartingSv), fall back to www2 (LlaveStartingSv).
     let device_id = uuid::Uuid::new_v4().to_string();
-    tracing::info!("calling starting() to establish device session");
-    let starting_resp = client.starting(&device_id, nif, "").await?;
-    if starting_resp.status != "OK" {
-        tracing::warn!(
-            status = %starting_resp.status,
-            code = starting_resp.codigo_error.as_deref().unwrap_or("?"),
-            message = starting_resp.mensaje.as_deref().unwrap_or("?"),
-            "starting() returned non-OK (continuing anyway)"
-        );
+    tracing::info!("calling clave_starting (www12) to establish device session");
+    match client.clave_starting(&device_id, nif, "").await {
+        Ok(resp) if resp.status == "OK" => {
+            tracing::info!("clave_starting (www12) succeeded");
+        }
+        Ok(resp) => {
+            tracing::warn!(
+                status = %resp.status,
+                code = resp.codigo_error.as_deref().unwrap_or("?"),
+                message = resp.mensaje.as_deref().unwrap_or("?"),
+                "clave_starting (www12) returned non-OK, trying starting (www2)"
+            );
+            match client.starting(&device_id, nif, "").await {
+                Ok(r) if r.status == "OK" => {
+                    tracing::info!("starting (www2) succeeded");
+                }
+                Ok(r) => {
+                    tracing::warn!(
+                        status = %r.status,
+                        code = r.codigo_error.as_deref().unwrap_or("?"),
+                        message = r.mensaje.as_deref().unwrap_or("?"),
+                        "starting (www2) also returned non-OK (continuing anyway)"
+                    );
+                }
+                Err(e) => {
+                    tracing::warn!(err = %e, "starting (www2) failed (continuing anyway)");
+                }
+            }
+        }
+        Err(e) => {
+            tracing::warn!(err = %e, "clave_starting (www12) failed, trying starting (www2)");
+            match client.starting(&device_id, nif, "").await {
+                Ok(r) if r.status == "OK" => {
+                    tracing::info!("starting (www2) succeeded");
+                }
+                Ok(r) => {
+                    tracing::warn!(
+                        status = %r.status,
+                        code = r.codigo_error.as_deref().unwrap_or("?"),
+                        "starting (www2) also non-OK (continuing anyway)"
+                    );
+                }
+                Err(e2) => {
+                    tracing::warn!(err = %e2, "both starting endpoints failed (continuing anyway)");
+                }
+            }
+        }
     }
 
     // Step 1: DNI/NIE auth (establishes session cookies).

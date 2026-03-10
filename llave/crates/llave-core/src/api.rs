@@ -429,7 +429,7 @@ impl LlaveClient {
         })
     }
 
-    /// Initialize a session with the Llave backend.
+    /// Initialize a session with the Llave backend (www2 endpoint).
     pub async fn starting(
         &self,
         device_id: &str,
@@ -438,6 +438,29 @@ impl LlaveClient {
     ) -> Result<ApiResponse<StartingResponse>> {
         let url = format!("{BASE_URL}/wlpl/MOVI-P24H/LlaveStartingSv");
         self.post_form("starting", &url, &[
+                ("device_id", device_id),
+                ("NIF", nif),
+                ("sistema_operativo", OS_NAME),
+                ("token_push", token_push),
+                ("version_os", OS_VERSION),
+                ("version_app", APP_VERSION),
+                ("modelo", DEVICE_MODEL),
+            ]).await
+    }
+
+    /// Initialize a session via ClaveStartingSv on www12.
+    ///
+    /// The Android app calls ClaveStartingSv (on www2) at app launch to establish
+    /// device context. www2's MOVI-P24H paths are blocked from public internet,
+    /// but www12 may accept the same endpoint.
+    pub async fn clave_starting(
+        &self,
+        device_id: &str,
+        nif: &str,
+        token_push: &str,
+    ) -> Result<ApiResponse<StartingResponse>> {
+        let url = format!("{BASE_URL_WWW12}/wlpl/MOVI-P24H/ClaveStartingSv");
+        self.post_form("clave_starting", &url, &[
                 ("device_id", device_id),
                 ("NIF", nif),
                 ("sistema_operativo", OS_NAME),
