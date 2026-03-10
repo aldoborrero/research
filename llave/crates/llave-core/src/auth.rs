@@ -100,7 +100,7 @@ pub async fn authenticate_dni(
 /// Matches the Android app's sequence:
 /// 1. `AutenticaDniNieContrasteh` (DNI/NIE weak auth on www2)
 /// 2. `ClaveRequestStateSv` (registration check on www12)
-/// 3. `ClaveActivateAuthenticationSv` (device activation on www1)
+/// 3. `ClaveActivateAuthenticationSv` (device activation on www6)
 pub async fn dni_activate_device(
     client: &LlaveClient,
     nif: &str,

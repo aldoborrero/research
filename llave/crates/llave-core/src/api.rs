@@ -4,13 +4,18 @@ use serde::{Deserialize, Serialize};
 use std::sync::Mutex;
 
 const BASE_URL: &str = "https://www2.agenciatributaria.gob.es";
-const BASE_URL_WWW1: &str = "https://www1.agenciatributaria.gob.es";
+const BASE_URL_WWW6: &str = "https://www6.agenciatributaria.gob.es";
 const BASE_URL_WWW12: &str = "https://www12.agenciatributaria.gob.es";
 
 const APP_VERSION: &str = "6.2.5";
-const OS_NAME: &str = "Linux";
-const OS_VERSION: &str = "CLI";
+/// Android-style sistema_operativo value ("A" = Android).
+/// The AEAT server uses this to determine session routing.
+const OS_NAME: &str = "A";
+const OS_VERSION: &str = "14";
 const DEVICE_MODEL: &str = "llave-cli";
+/// User-Agent matching the Android app format so the AEAT server
+/// recognises us as a mobile client (critical for session handling).
+const USER_AGENT: &str = "APPMovil/Cl@ve/v6.2.5(288)/14/Android/Dalvik/2.1.0";
 
 /// Standard response envelope from all Llave API endpoints.
 #[derive(Debug, Deserialize, Serialize)]
@@ -111,7 +116,7 @@ pub struct ClaveRequestStateResponse {
 /// Manages cookies manually across all `*.agenciatributaria.gob.es` subdomains,
 /// matching the Android app's `CookiePolicy.ACCEPT_ALL` + `setCookiesInJar()`.
 /// Reqwest's built-in cookie store follows RFC domain-matching rules which
-/// prevents cookies set by `www2` from being sent to `www1` or `www12`.
+/// prevents cookies set by `www2` from being sent to `www6` or `www12`.
 pub struct LlaveClient {
     client: Client,
     trace_id: String,
@@ -122,13 +127,19 @@ pub struct LlaveClient {
 impl LlaveClient {
     pub fn new() -> Result<Self> {
         // Do NOT use cookie_store(true) — we manage cookies manually to
-        // propagate them across subdomains (www2 ↔ www12 ↔ www1).
+        // propagate them across subdomains (www2 ↔ www12 ↔ www6).
         // Disable automatic redirects so we can re-attach cookies at each
         // hop (reqwest strips custom headers on cross-origin redirects).
         let client = Client::builder()
-            .user_agent(format!("llave-cli/{APP_VERSION}"))
+            .user_agent(USER_AGENT)
             .timeout(std::time::Duration::from_secs(190))
             .redirect(reqwest::redirect::Policy::none())
+            .default_headers({
+                let mut h = reqwest::header::HeaderMap::new();
+                h.insert(reqwest::header::ACCEPT, "application/json".parse().unwrap());
+                h.insert(reqwest::header::ACCEPT_LANGUAGE, "es_ES".parse().unwrap());
+                h
+            })
             .build()?;
 
         let trace_id = uuid::Uuid::new_v4().to_string();
@@ -172,9 +183,8 @@ impl LlaveClient {
         url: &str,
         form: &[(&str, &str)],
     ) -> Result<ApiResponse<T>> {
-        tracing::debug!(endpoint = endpoint, "aeat request");
-
         let cookie_header = self.cookie_header();
+        tracing::debug!(endpoint = endpoint, url = url, cookies = %cookie_header, "aeat request");
         let mut req = self
             .client
             .post(url)
@@ -190,7 +200,7 @@ impl LlaveClient {
 
         // Follow redirects manually, re-attaching cookies at each hop.
         // reqwest strips custom headers (Cookie) on cross-origin redirects
-        // (e.g. www1 → www2), so we must handle this ourselves.
+        // (e.g. www6 → www2), so we must handle this ourselves.
         while resp.status().is_redirection() {
             let location = resp
                 .headers()
@@ -221,8 +231,10 @@ impl LlaveClient {
             self.capture_cookies(&resp);
         }
 
+        let final_status = resp.status();
+        let final_url = resp.url().to_string();
         let body = resp.text().await?;
-        tracing::debug!(endpoint = endpoint, body_len = body.len(), body_preview = %&body[..body.len().min(512)], "aeat response body");
+        tracing::debug!(endpoint = endpoint, http_status = %final_status, final_url = %final_url, body_len = body.len(), body_preview = %&body[..body.len().min(512)], "aeat response body");
 
         // Detect HTML responses early — the server returns the login page
         // when session cookies are missing or expired.
@@ -362,16 +374,14 @@ impl LlaveClient {
 
     /// Activate device authentication.
     ///
-    /// Uses www1 (not www6) and the `ClaveActivateAuthenticationSv` endpoint, matching
-    /// the Android app's behaviour.
+    /// Uses www6 and the `ClaveActivateAuthenticationSv` endpoint, matching
+    /// the Android app's standard device-activation flow (isWww6Domain=true).
     pub async fn activate_authentication(
         &self,
         device_password: &str,
         token_push: &str,
     ) -> Result<ApiResponse<ActivateResponse>> {
-        // The Android app uses www1 (not www1) for this endpoint
-        // (isWww6Domain=false in RequestClaveActivateAuthentication).
-        let url = format!("{BASE_URL_WWW1}/wlpl/MOVI-P24H/ClaveActivateAuthenticationSv");
+        let url = format!("{BASE_URL_WWW6}/wlpl/MOVI-P24H/ClaveActivateAuthenticationSv");
         self.post_form("activate_authentication", &url, &[
             ("sistema_operativo", OS_NAME),
             ("version_os", OS_VERSION),
@@ -429,7 +439,7 @@ impl LlaveClient {
                 ("FECHA", fecha),
                 ("SOPORTE", soporte),
                 ("botonAutenticacionDebil", "Continuar"),
-                ("APP", "CLAVE"),
+                ("APP", "S"),
                 ("modo", "json"),
                 ("AZUL", ""),
                 ("FECHANIE", ""),
