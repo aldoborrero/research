@@ -43,7 +43,11 @@ class AuthError extends AuthState {
 class AuthNotifier extends StateNotifier<AuthState> {
   final LlaveBridge _bridge;
 
-  AuthNotifier(this._bridge) : super(const AuthLoading());
+  AuthNotifier(this._bridge) : super(const AuthLoading()) {
+    addListener((state) {
+      _log.info('state → ${state.runtimeType}');
+    });
+  }
 
   /// Initialise the Rust core and check for a persisted session.
   ///

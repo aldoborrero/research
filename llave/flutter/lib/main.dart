@@ -57,6 +57,8 @@ const _guestOnlyRoutes = {'/activate', '/dni-auth'};
 /// Routes with their own navigation logic (never redirect away from them).
 const _selfManagedRoutes = {'/splash', '/unlock', '/set-pin'};
 
+final _log = Logger('Router');
+
 /// Riverpod provider for the app router.
 ///
 /// Uses [refreshListenable] so go_router re-evaluates redirects when the auth
@@ -73,6 +75,8 @@ final routerProvider = Provider<GoRouter>((ref) {
       final auth = ref.read(authProvider);
       final location = state.uri.path;
 
+      _log.fine('redirect: location=$location auth=${auth.runtimeType}');
+
       // Never redirect away from self-managed routes.
       if (_selfManagedRoutes.contains(location)) return null;
 
@@ -81,18 +85,26 @@ final routerProvider = Provider<GoRouter>((ref) {
       final needsPin = auth is AuthNeedsPin;
 
       // Encrypted session on disk — force PIN entry.
-      if (isLocked && location != '/unlock') return '/unlock';
+      if (isLocked && location != '/unlock') {
+        _log.info('redirect: $location → /unlock (session locked)');
+        return '/unlock';
+      }
 
       // Just activated — force PIN setup.
-      if (needsPin && location != '/set-pin') return '/set-pin';
+      if (needsPin && location != '/set-pin') {
+        _log.info('redirect: $location → /set-pin (needs PIN setup)');
+        return '/set-pin';
+      }
 
       // Redirect unauthenticated users away from protected routes.
       if (!isAuthenticated && _protectedRoutes.contains(location)) {
+        _log.info('redirect: $location → /activate (not authenticated)');
         return '/activate';
       }
 
       // Redirect authenticated users away from guest-only routes.
       if (isAuthenticated && _guestOnlyRoutes.contains(location)) {
+        _log.info('redirect: $location → / (already authenticated)');
         return '/';
       }
 
