@@ -1,5 +1,5 @@
 # Llave -- Design System
-## Linear / Vercel Aesthetic for Flutter (AEAT PIN Management)
+## Linear / Vercel Aesthetic for Flutter (Llave PIN Management)
 
 ---
 

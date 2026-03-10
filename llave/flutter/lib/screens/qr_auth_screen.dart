@@ -194,7 +194,7 @@ class _QrAuthScreenState extends ConsumerState<QrAuthScreen> {
                 Text(
                   _loading
                       ? 'Authenticating...'
-                      : 'Point your camera at an AEAT QR code',
+                      : 'Point your camera at a Cl@ve QR code',
                   style: theme.textTheme.bodyMedium?.copyWith(
                     color: theme.colorScheme.onSurfaceVariant,
                   ),
@@ -223,7 +223,7 @@ class _QrAuthScreenState extends ConsumerState<QrAuthScreen> {
             ),
             const SizedBox(height: 8),
             Text(
-              'Paste the QR code value from an AEAT authentication request.',
+              'Paste the QR code value from a Cl@ve authentication request.',
               style: theme.textTheme.bodyMedium?.copyWith(
                 color: theme.colorScheme.onSurfaceVariant,
               ),

@@ -1,6 +1,6 @@
 name: llave
 description: >
-  Alternative Llave AEAT client for Spain's digital identity authentication.
+  Alternative Llave client for Spain's digital identity authentication.
   Powered by a Rust core shared across CLI, web, and mobile.
 
 publish_to: "none"

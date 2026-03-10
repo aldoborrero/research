@@ -3,7 +3,7 @@ name = "llave-cli"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "CLI tool for Llave AEAT authentication (Spain's digital identity system)"
+description = "CLI tool for Llave authentication (Spain's digital identity system)"
 
 [[bin]]
 name = "llave"

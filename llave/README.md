@@ -1,6 +1,6 @@
 # llave
 
-Alternative implementation of **Llave AEAT** — Spain's digital identity system for interacting with public administration services. CLI and Flutter (mobile/desktop) clients sharing a single Rust core.
+Alternative implementation of **Llave** — Spain's digital identity system for interacting with public administration services. CLI and Flutter (mobile/desktop) clients sharing a single Rust core.
 
 ## Features
 

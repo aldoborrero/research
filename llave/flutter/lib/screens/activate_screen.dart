@@ -32,7 +32,7 @@ class ActivateScreen extends ConsumerWidget {
               ),
               const SizedBox(height: 8),
               Text(
-                'Register this device with your Cl@ve account to access AEAT services.',
+                'Register this device with your Cl@ve account.',
                 style: theme.textTheme.bodyMedium?.copyWith(
                   color: theme.colorScheme.onSurfaceVariant,
                 ),

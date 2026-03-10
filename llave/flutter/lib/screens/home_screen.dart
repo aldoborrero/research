@@ -14,7 +14,7 @@ class HomeScreen extends ConsumerWidget {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Llave AEAT'),
+        title: const Text('Llave'),
         centerTitle: true,
         actions: [
           if (session != null)

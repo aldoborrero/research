@@ -10,7 +10,7 @@ use llave_core::{init_storage, LlaveClient, Config, KeyringStorage, Session};
 #[derive(Parser)]
 #[command(
     name = "llave",
-    about = "CLI tool for Llave AEAT authentication (Spain's digital identity system)",
+    about = "CLI tool for Llave authentication (Spain's digital identity system)",
     version
 )]
 struct Cli {

@@ -40,7 +40,7 @@ craneLib.buildPackage (
     cargoExtraArgs = "--package llave-cli";
 
     meta = {
-      description = "CLI tool for Llave AEAT authentication (Spain's digital identity system)";
+      description = "CLI tool for Llave authentication (Spain's digital identity system)";
       mainProgram = "llave";
     };
   }

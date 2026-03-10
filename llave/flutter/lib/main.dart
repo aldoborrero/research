@@ -152,7 +152,7 @@ class LlaveApp extends ConsumerWidget {
     final router = ref.watch(routerProvider);
 
     return MaterialApp.router(
-      title: 'Llave AEAT',
+      title: 'Llave',
       debugShowCheckedModeBanner: false,
       themeMode: themeMode,
       theme: ThemeData(

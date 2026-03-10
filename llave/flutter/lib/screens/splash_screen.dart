@@ -94,7 +94,7 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
               ),
               const SizedBox(height: 4),
               Text(
-                'AEAT',
+                'Llave',
                 style: theme.textTheme.titleMedium?.copyWith(
                   color: theme.colorScheme.onSurfaceVariant,
                   letterSpacing: 4,
