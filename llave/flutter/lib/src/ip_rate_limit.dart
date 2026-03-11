@@ -42,8 +42,7 @@ void showIpRateLimitBanner(BuildContext context) {
           const SizedBox(height: 4),
           Text(
             'Your IP address has exceeded the maximum number of failed '
-            'attempts allowed per day. Try again tomorrow, or use a '
-            'VPN/proxy to switch IP addresses.',
+            'attempts allowed per day. Please try again tomorrow.',
             style: theme.textTheme.bodySmall?.copyWith(
               color: theme.colorScheme.onErrorContainer,
             ),
