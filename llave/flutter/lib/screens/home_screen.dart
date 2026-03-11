@@ -219,9 +219,11 @@ class _AccountCard extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 16),
-            // Always show NIF from session
+            // Always show NIF + device info from session
             _AccountRow(label: 'NIF', value: session.nif),
-            // Show account data if loaded
+            _AccountRow(label: 'Device', value: _shortenId(session.deviceId)),
+            _AccountRow(label: 'Since', value: _formatDate(session.createdAt)),
+            // Show extra fields from API if loaded
             if (accountData != null) ...[
               if (accountData!['email'] != null)
                 _AccountRow(label: 'Email', value: accountData!['email'].toString()),
@@ -254,6 +256,24 @@ class _AccountCard extends StatelessWidget {
         '3' => 'Superior',
         _ => level,
       };
+
+  static String _shortenId(String id) {
+    if (id.length <= 12) return id;
+    return '${id.substring(0, 8)}...';
+  }
+
+  static String _formatDate(String iso) {
+    try {
+      final dt = DateTime.parse(iso);
+      return '${dt.day.toString().padLeft(2, '0')}/'
+          '${dt.month.toString().padLeft(2, '0')}/'
+          '${dt.year} '
+          '${dt.hour.toString().padLeft(2, '0')}:'
+          '${dt.minute.toString().padLeft(2, '0')}';
+    } catch (_) {
+      return iso;
+    }
+  }
 }
 
 class _AccountRow extends StatelessWidget {
