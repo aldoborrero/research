@@ -1,15 +1,17 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../src/auth_provider.dart';
+import '../src/rust/api/api.dart' as native_ffi;
 
 class HomeScreen extends ConsumerWidget {
   const HomeScreen({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final theme = Theme.of(context);
     final session = ref.watch(currentSessionProvider);
 
     return Scaffold(
@@ -25,39 +27,9 @@ class HomeScreen extends ConsumerWidget {
             ),
         ],
       ),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          // Status card
-          _SessionCard(session: session),
-          const SizedBox(height: 16),
-
-          // Quick actions (only if authenticated)
-          if (session != null) ...[
-            Text('Quick Actions', style: theme.textTheme.titleMedium),
-            const SizedBox(height: 12),
-            GridView.count(
-              crossAxisCount: 2,
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              mainAxisSpacing: 12,
-              crossAxisSpacing: 12,
-              children: [
-                _ActionTile(
-                  icon: Icons.qr_code_2,
-                  label: 'QR Auth',
-                  onTap: () => context.go('/qr'),
-                ),
-                _ActionTile(
-                  icon: Icons.person_outline,
-                  label: 'My Data',
-                  onTap: () => context.go('/mydata'),
-                ),
-              ],
-            ),
-          ],
-        ],
-      ),
+      body: session == null
+          ? _UnauthenticatedBody()
+          : _AuthenticatedBody(session: session),
     );
   }
 
@@ -84,14 +56,137 @@ class HomeScreen extends ConsumerWidget {
   }
 }
 
-class _SessionCard extends StatelessWidget {
+class _UnauthenticatedBody extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.shield_outlined, size: 64,
+                color: theme.colorScheme.onSurfaceVariant),
+            const SizedBox(height: 16),
+            Text(
+              'No active session',
+              style: theme.textTheme.titleMedium,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Activate your device to get started.',
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+            const SizedBox(height: 24),
+            FilledButton.icon(
+              onPressed: () => GoRouter.of(context).go('/activate'),
+              icon: const Icon(Icons.login),
+              label: const Text('Activate Device'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _AuthenticatedBody extends StatefulWidget {
   final dynamic session;
-  const _SessionCard({required this.session});
+  const _AuthenticatedBody({required this.session});
+
+  @override
+  State<_AuthenticatedBody> createState() => _AuthenticatedBodyState();
+}
+
+class _AuthenticatedBodyState extends State<_AuthenticatedBody> {
+  bool _loading = false;
+  Map<String, dynamic>? _accountData;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadAccountData();
+  }
+
+  Future<void> _loadAccountData() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final result = await native_ffi.getMyData();
+      if (!result.ok) {
+        setState(() => _error = result.error ?? 'Could not load account data');
+        return;
+      }
+      final parsed = jsonDecode(result.data);
+      setState(() =>
+          _accountData = parsed is Map<String, dynamic> ? parsed : null);
+    } catch (e) {
+      setState(() => _error = e.toString());
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final isActive = session != null;
+
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        // Account card
+        _AccountCard(
+          session: widget.session,
+          accountData: _accountData,
+          loading: _loading,
+          error: _error,
+          onRetry: _loadAccountData,
+        ),
+        const SizedBox(height: 20),
+
+        // QR Auth — primary CTA
+        SizedBox(
+          height: 56,
+          child: FilledButton.icon(
+            onPressed: () => context.go('/qr'),
+            icon: const Icon(Icons.qr_code_2, size: 24),
+            label: Text(
+              'QR Authentication',
+              style: theme.textTheme.titleMedium?.copyWith(
+                color: theme.colorScheme.onPrimary,
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _AccountCard extends StatelessWidget {
+  final dynamic session;
+  final Map<String, dynamic>? accountData;
+  final bool loading;
+  final String? error;
+  final VoidCallback onRetry;
+
+  const _AccountCard({
+    required this.session,
+    required this.accountData,
+    required this.loading,
+    required this.error,
+    required this.onRetry,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
 
     return Card(
       child: Padding(
@@ -101,141 +196,92 @@ class _SessionCard extends StatelessWidget {
           children: [
             Row(
               children: [
-                Icon(
-                  isActive ? Icons.verified_user : Icons.shield_outlined,
-                  color: isActive
-                      ? Colors.green
-                      : theme.colorScheme.onSurfaceVariant,
-                ),
+                Icon(Icons.person, color: theme.colorScheme.primary),
                 const SizedBox(width: 12),
-                Text('Session Status', style: theme.textTheme.titleMedium),
+                Text('Account', style: theme.textTheme.titleMedium),
                 const Spacer(),
-                Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: isActive
-                        ? Colors.green.withValues(alpha: 0.1)
-                        : theme.colorScheme.errorContainer,
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Text(
-                    isActive ? 'Active' : 'Inactive',
-                    style: theme.textTheme.labelSmall?.copyWith(
-                      color: isActive
-                          ? Colors.green
-                          : theme.colorScheme.error,
-                      fontWeight: FontWeight.bold,
+                if (loading)
+                  const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                else
+                  InkWell(
+                    borderRadius: BorderRadius.circular(16),
+                    onTap: onRetry,
+                    child: Icon(
+                      Icons.refresh,
+                      size: 20,
+                      color: theme.colorScheme.onSurfaceVariant,
                     ),
                   ),
-                ),
               ],
             ),
             const SizedBox(height: 16),
-            if (isActive) ...[
-              _InfoRow(label: 'NIF', value: session.nif),
-              const SizedBox(height: 4),
-              _InfoRow(label: 'Device', value: _shortenId(session.deviceId)),
-              const SizedBox(height: 4),
-              _InfoRow(label: 'Since', value: _formatDate(session.createdAt)),
-            ] else ...[
-              Text(
-                'No active session. Activate your device to get started.',
-                style: theme.textTheme.bodyMedium?.copyWith(
-                  color: theme.colorScheme.onSurfaceVariant,
+            // Always show NIF from session
+            _AccountRow(label: 'NIF', value: session.nif),
+            // Show account data if loaded
+            if (accountData != null) ...[
+              if (accountData!['email'] != null)
+                _AccountRow(label: 'Email', value: accountData!['email'].toString()),
+              if (accountData!['numTelefono'] != null)
+                _AccountRow(label: 'Phone', value: accountData!['numTelefono'].toString()),
+              if (accountData!['nivelRegistro'] != null)
+                _AccountRow(
+                    label: 'Level',
+                    value: _registrationLevel(accountData!['nivelRegistro'].toString())),
+            ],
+            if (error != null && accountData == null)
+              Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Text(
+                  error!,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.error,
+                  ),
                 ),
               ),
-              const SizedBox(height: 16),
-              FilledButton.icon(
-                onPressed: () => GoRouter.of(context).go('/activate'),
-                icon: const Icon(Icons.login),
-                label: const Text('Activate Device'),
-              ),
-            ],
           ],
         ),
       ),
     );
   }
 
-  static String _shortenId(String id) {
-    if (id.length <= 12) return id;
-    return '${id.substring(0, 8)}...';
-  }
-
-  static String _formatDate(String iso) {
-    try {
-      final dt = DateTime.parse(iso);
-      return '${dt.day.toString().padLeft(2, '0')}/'
-          '${dt.month.toString().padLeft(2, '0')}/'
-          '${dt.year} '
-          '${dt.hour.toString().padLeft(2, '0')}:'
-          '${dt.minute.toString().padLeft(2, '0')}';
-    } catch (_) {
-      return iso;
-    }
-  }
+  static String _registrationLevel(String level) => switch (level) {
+        '1' => 'Basic',
+        '2' => 'Advanced',
+        '3' => 'Superior',
+        _ => level,
+      };
 }
 
-class _InfoRow extends StatelessWidget {
+class _AccountRow extends StatelessWidget {
   final String label;
   final String value;
-  const _InfoRow({required this.label, required this.value});
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        SizedBox(
-          width: 60,
-          child: Text(
-            label,
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: Theme.of(context).colorScheme.onSurfaceVariant,
-                ),
-          ),
-        ),
-        Expanded(
-          child: Text(value, style: Theme.of(context).textTheme.bodyMedium),
-        ),
-      ],
-    );
-  }
-}
-
-class _ActionTile extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final VoidCallback onTap;
-
-  const _ActionTile({
-    required this.icon,
-    required this.label,
-    required this.onTap,
-  });
+  const _AccountRow({required this.label, required this.value});
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return Card(
-      clipBehavior: Clip.antiAlias,
-      child: InkWell(
-        onTap: onTap,
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(icon, size: 36, color: theme.colorScheme.primary),
-              const SizedBox(height: 12),
-              Text(
-                label,
-                style: theme.textTheme.titleSmall,
-                textAlign: TextAlign.center,
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 64,
+            child: Text(
+              label,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
               ),
-            ],
+            ),
           ),
-        ),
+          Expanded(
+            child: Text(value, style: theme.textTheme.bodyMedium),
+          ),
+        ],
       ),
     );
   }

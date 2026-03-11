@@ -20,22 +20,6 @@ class SettingsScreen extends ConsumerWidget {
       body: ListView(
         children: [
           const SizedBox(height: 8),
-          _SectionHeader('Account'),
-          ListTile(
-            leading: const Icon(Icons.person_outline),
-            title: const Text('My Data'),
-            subtitle: const Text('View Llave account information'),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: () => context.go('/mydata'),
-          ),
-          ListTile(
-            leading: const Icon(Icons.qr_code),
-            title: const Text('QR Authentication'),
-            subtitle: const Text('Scan a QR code to authenticate'),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: () => context.go('/qr'),
-          ),
-          const Divider(),
           _SectionHeader('Appearance'),
           ListTile(
             leading: Icon(_themeModeIcon(themeMode)),
