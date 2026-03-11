@@ -16,6 +16,12 @@ class _HistoryScreenState extends State<HistoryScreen> {
   List<Map<String, dynamic>> _operations = [];
   String? _error;
 
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
   Future<void> _load() async {
     setState(() {
       _loading = true;
@@ -53,46 +59,14 @@ class _HistoryScreenState extends State<HistoryScreen> {
       appBar: AppBar(
         title: const Text('History'),
         actions: [
-          if (_operations.isNotEmpty)
-            IconButton(
+          IconButton(
               onPressed: _loading ? null : _load,
               icon: const Icon(Icons.refresh),
               tooltip: 'Refresh',
             ),
         ],
       ),
-      body: _operations.isEmpty && !_loading && _error == null
-          ? Center(
-              child: Padding(
-                padding: const EdgeInsets.all(24),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(
-                      Icons.history,
-                      size: 64,
-                      color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.4),
-                    ),
-                    const SizedBox(height: 16),
-                    Text('Operations History', style: theme.textTheme.titleMedium),
-                    const SizedBox(height: 8),
-                    Text(
-                      'View past authentication operations.',
-                      style: theme.textTheme.bodyMedium?.copyWith(
-                        color: theme.colorScheme.onSurfaceVariant,
-                      ),
-                    ),
-                    const SizedBox(height: 24),
-                    FilledButton.icon(
-                      onPressed: _loading ? null : _load,
-                      icon: const Icon(Icons.download),
-                      label: const Text('Load History'),
-                    ),
-                  ],
-                ),
-              ),
-            )
-          : _loading
+      body: _loading
               ? const Center(child: CircularProgressIndicator())
               : _error != null
                   ? Center(
