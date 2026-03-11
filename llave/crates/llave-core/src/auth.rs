@@ -49,20 +49,20 @@ pub async fn activate_device(
     let activate_resp = client.activate_authentication(device_password, "").await?;
     let activate_data = activate_resp.respuesta.unwrap_or(crate::api::ActivateResponse {
         device_id: Some(device_id.to_string()),
+        token: None,
         user_password: None,
     });
 
-    // Use the server-returned password, falling back to the input if absent.
-    let server_password = activate_data.user_password.as_deref();
+    // The Clave endpoint returns the credential as `token`; older Llave
+    // endpoints used `user_password`.  Try both, fall back to input.
+    let saved_password = activate_data.token
+        .or(activate_data.user_password)
+        .unwrap_or_else(|| device_password.to_string());
     tracing::info!(
         server_device_id = activate_data.device_id.as_deref().unwrap_or("none"),
-        server_password_present = server_password.is_some(),
-        server_password_len = server_password.map(|p| p.len()).unwrap_or(0),
-        input_password_len = device_password.len(),
-        passwords_match = server_password.map(|p| p == device_password).unwrap_or(false),
+        saved_password_len = saved_password.len(),
         "activation response"
     );
-    let saved_password = activate_data.user_password.unwrap_or_else(|| device_password.to_string());
     let session = Session {
         device_id: activate_data.device_id.unwrap_or_else(|| device_id.to_string()),
         nif: nif.to_string(),
@@ -296,9 +296,9 @@ pub async fn dni_validate_and_activate(
     })?;
 
     let device_id = activate_data.device_id.unwrap_or_default();
-    // Use the server-returned password, falling back to the input if absent.
-    // The server may transform the password during activation.
-    let saved_password = activate_data.user_password.unwrap_or_else(|| device_password.to_string());
+    let saved_password = activate_data.token
+        .or(activate_data.user_password)
+        .unwrap_or_else(|| device_password.to_string());
     let session = Session {
         device_id,
         nif: nif.to_string(),
@@ -370,7 +370,9 @@ pub async fn dni_activate_device(
     })?;
 
     let device_id = activate_data.device_id.unwrap_or_default();
-    let saved_password = activate_data.user_password.unwrap_or_else(|| device_password.to_string());
+    let saved_password = activate_data.token
+        .or(activate_data.user_password)
+        .unwrap_or_else(|| device_password.to_string());
     let session = Session {
         device_id,
         nif: nif.to_string(),
