@@ -341,7 +341,8 @@ impl LlaveClient {
         let final_status = resp.status();
         let final_url = resp.url().to_string();
         let body = resp.text().await?;
-        tracing::debug!(endpoint = endpoint, http_status = %final_status, final_url = %final_url, body_len = body.len(), body_preview = %&body[..body.len().min(512)], "aeat response body");
+        // Log at info level so response bodies are visible in normal output.
+        tracing::info!(endpoint = endpoint, http_status = %final_status, final_url = %final_url, body_len = body.len(), body_preview = %&body[..body.len().min(512)], "aeat response body");
 
         // Detect HTML responses early — the server returns the login page
         // when session cookies are missing or expired.

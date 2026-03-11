@@ -53,6 +53,15 @@ pub async fn activate_device(
     });
 
     // Use the server-returned password, falling back to the input if absent.
+    let server_password = activate_data.user_password.as_deref();
+    tracing::info!(
+        server_device_id = activate_data.device_id.as_deref().unwrap_or("none"),
+        server_password_present = server_password.is_some(),
+        server_password_len = server_password.map(|p| p.len()).unwrap_or(0),
+        input_password_len = device_password.len(),
+        passwords_match = server_password.map(|p| p == device_password).unwrap_or(false),
+        "activation response"
+    );
     let saved_password = activate_data.user_password.unwrap_or_else(|| device_password.to_string());
     let session = Session {
         device_id: activate_data.device_id.unwrap_or_else(|| device_id.to_string()),
