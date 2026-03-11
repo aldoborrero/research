@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 
+import '../src/ip_rate_limit.dart';
 import '../src/llave_bridge.dart';
 
 /// Whether the current platform supports camera-based QR scanning.
@@ -57,17 +58,25 @@ class _QrAuthScreenState extends ConsumerState<QrAuthScreen> {
           _success = true;
         });
       } else {
+        final err = result.error ?? 'Authentication failed';
         setState(() {
           _loading = false;
-          _error = result.error ?? 'Authentication failed';
+          _error = err;
         });
+        if (mounted && isIpRateLimited(err)) {
+          showIpRateLimitBanner(context);
+        }
       }
     } catch (e) {
       if (!mounted) return;
+      final err = e.toString();
       setState(() {
         _loading = false;
-        _error = e.toString();
+        _error = err;
       });
+      if (isIpRateLimited(err)) {
+        showIpRateLimitBanner(context);
+      }
     }
   }
 

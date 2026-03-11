@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../src/ip_rate_limit.dart';
 import '../src/rust/api/api.dart' as native_ffi;
 
 class PinScreen extends StatefulWidget {
@@ -29,7 +30,11 @@ class _PinScreenState extends State<PinScreen> {
         _ttl = result.timeToLiveSeconds;
       });
     } catch (e) {
-      setState(() => _error = e.toString());
+      final err = e.toString();
+      setState(() => _error = err);
+      if (mounted && isIpRateLimited(err)) {
+        showIpRateLimitBanner(context);
+      }
     } finally {
       if (mounted) setState(() => _loading = false);
     }

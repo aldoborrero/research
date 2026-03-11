@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../src/auth_provider.dart';
+import '../src/ip_rate_limit.dart';
 import '../src/rust/api/api.dart' as native_ffi;
 
 class HomeScreen extends ConsumerWidget {
@@ -120,14 +121,22 @@ class _AuthenticatedBodyState extends State<_AuthenticatedBody> {
     try {
       final result = await native_ffi.getMyData();
       if (!result.ok) {
-        setState(() => _error = result.error ?? 'Could not load account data');
+        final err = result.error ?? 'Could not load account data';
+        setState(() => _error = err);
+        if (mounted && isIpRateLimited(err)) {
+          showIpRateLimitBanner(context);
+        }
         return;
       }
       final parsed = jsonDecode(result.data);
       setState(() =>
           _accountData = parsed is Map<String, dynamic> ? parsed : null);
     } catch (e) {
-      setState(() => _error = e.toString());
+      final err = e.toString();
+      setState(() => _error = err);
+      if (mounted && isIpRateLimited(err)) {
+        showIpRateLimitBanner(context);
+      }
     } finally {
       if (mounted) setState(() => _loading = false);
     }

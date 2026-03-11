@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 
+import '../src/ip_rate_limit.dart';
 import '../src/rust/api/api.dart' as native_ffi;
 
 class PendingScreen extends StatefulWidget {
@@ -31,7 +32,11 @@ class _PendingScreenState extends State<PendingScreen> {
     try {
       final result = await native_ffi.getPendingRequests();
       if (!result.ok) {
-        setState(() => _error = result.error ?? 'Unknown error');
+        final err = result.error ?? 'Unknown error';
+        setState(() => _error = err);
+        if (mounted && isIpRateLimited(err)) {
+          showIpRateLimitBanner(context);
+        }
         return;
       }
       final parsed = jsonDecode(result.data);
@@ -47,7 +52,11 @@ class _PendingScreenState extends State<PendingScreen> {
       }
       setState(() => _requests = items);
     } catch (e) {
-      setState(() => _error = e.toString());
+      final err = e.toString();
+      setState(() => _error = err);
+      if (mounted && isIpRateLimited(err)) {
+        showIpRateLimitBanner(context);
+      }
     } finally {
       if (mounted) setState(() => _loading = false);
     }
