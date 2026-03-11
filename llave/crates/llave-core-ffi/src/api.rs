@@ -82,6 +82,16 @@ pub fn init_core(session_json: Option<String>) -> Result<bool, String> {
     Ok(true)
 }
 
+/// Set the proxy URL for all subsequent API calls.
+///
+/// Supports HTTP, HTTPS, and SOCKS5 URLs (e.g. `socks5://127.0.0.1:1080`).
+/// Pass `None` to disable the proxy.
+#[frb]
+pub fn set_proxy(url: Option<String>) {
+    tracing::info!(proxy = url.as_deref().unwrap_or("none"), "set proxy");
+    llave_core::set_proxy(url);
+}
+
 /// Export the current session as a JSON string.
 ///
 /// Flutter should call this after operations that create or mutate the session

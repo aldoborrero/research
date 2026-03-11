@@ -24,6 +24,11 @@ struct Cli {
     /// Enable verbose logging
     #[arg(short, long, global = true)]
     verbose: bool,
+
+    /// Proxy URL (http, https, or socks5). Overrides config file.
+    /// Example: socks5://127.0.0.1:1080
+    #[arg(long, global = true, env = "LLAVE_PROXY")]
+    proxy: Option<String>,
 }
 
 #[derive(Subcommand)]
@@ -177,6 +182,14 @@ async fn main() {
         .init();
 
     init_storage(Box::new(KeyringStorage::new()));
+
+    // Set proxy: CLI flag > config file > env var (LLAVE_PROXY handled by clap)
+    let proxy = cli.proxy.clone().or_else(|| {
+        Config::load().ok().and_then(|c| c.proxy)
+    });
+    if proxy.is_some() {
+        llave_core::set_proxy(proxy);
+    }
 
     if let Err(e) = run(&cli).await {
         output_error(&cli, &e);

@@ -21,7 +21,7 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tracing-logfmt = "0.3"
 chrono = { version = "0.4", features = ["serde"] }
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "cookies", "json"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "cookies", "json", "socks"] }
 uuid = { version = "1", features = ["v4"] }
 base64 = "0.22"
 url = "2"
@@ -45,4 +45,4 @@ hmac = "0.12"
 flutter_rust_bridge = "=2.11.1"
 
 # CLI
-clap = { version = "4", features = ["derive"] }
+clap = { version = "4", features = ["derive", "env"] }

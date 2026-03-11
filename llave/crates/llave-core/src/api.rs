@@ -147,7 +147,7 @@ impl LlaveClient {
         // propagate them across subdomains (www2 ↔ www12 ↔ www6).
         // Disable automatic redirects so we can re-attach cookies at each
         // hop (reqwest strips custom headers on cross-origin redirects).
-        let client = Client::builder()
+        let mut builder = Client::builder()
             .user_agent(USER_AGENT)
             .timeout(std::time::Duration::from_secs(190))
             .redirect(reqwest::redirect::Policy::none())
@@ -156,8 +156,18 @@ impl LlaveClient {
                 h.insert(reqwest::header::ACCEPT, "application/json".parse().unwrap());
                 h.insert(reqwest::header::ACCEPT_LANGUAGE, "es_ES".parse().unwrap());
                 h
-            })
-            .build()?;
+            });
+
+        // Apply proxy from global config (supports http, https, socks5).
+        if let Some(proxy_url) = crate::config::get_proxy() {
+            tracing::info!(proxy = %proxy_url, "using proxy");
+            builder = builder.proxy(
+                reqwest::Proxy::all(&proxy_url)
+                    .map_err(|e| LlaveError::Config(format!("invalid proxy URL: {e}")))?
+            );
+        }
+
+        let client = builder.build()?;
 
         Ok(Self {
             client,

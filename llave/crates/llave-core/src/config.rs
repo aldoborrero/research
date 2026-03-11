@@ -1,6 +1,22 @@
 use crate::error::{LlaveError, Result};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
+use std::sync::Mutex;
+
+/// Global proxy URL. Set via [`set_proxy`] before creating any [`LlaveClient`].
+/// Checked by `LlaveClient::new()` — if set, all requests go through this proxy.
+/// Supports HTTP, HTTPS, and SOCKS5 URLs (e.g. `socks5://127.0.0.1:1080`).
+static PROXY_URL: Mutex<Option<String>> = Mutex::new(None);
+
+/// Set the global proxy URL used by all subsequent `LlaveClient` instances.
+pub fn set_proxy(url: Option<String>) {
+    *PROXY_URL.lock().unwrap() = url;
+}
+
+/// Get the currently configured proxy URL.
+pub fn get_proxy() -> Option<String> {
+    PROXY_URL.lock().unwrap().clone()
+}
 
 /// XDG-compliant configuration directory
 pub fn config_dir() -> Result<PathBuf> {
@@ -25,6 +41,8 @@ pub struct Config {
     pub nif: Option<String>,
     pub device_id: Option<String>,
     pub language: Option<String>,
+    /// HTTP/HTTPS/SOCKS5 proxy URL (e.g. `socks5://127.0.0.1:1080`).
+    pub proxy: Option<String>,
 }
 
 impl Config {
