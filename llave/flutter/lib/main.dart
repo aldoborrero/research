@@ -234,16 +234,19 @@ class AppShell extends StatelessWidget {
     final width = MediaQuery.sizeOf(context).width;
     final useRail = width >= 600;
     final selectedIndex = _currentIndex(context);
+    final location = GoRouterState.of(context).uri.toString();
+    final showFab = location != '/settings';
 
-    final fab = FloatingActionButton(
+    final fab = FloatingActionButton.extended(
       onPressed: () => context.go('/qr'),
       tooltip: 'Scan QR',
-      child: const Icon(Icons.qr_code_scanner),
+      icon: const Icon(Icons.qr_code_scanner),
+      label: const Text('Scan QR'),
     );
 
     if (useRail) {
       return Scaffold(
-        floatingActionButton: fab,
+        floatingActionButton: showFab ? fab : null,
         body: Row(
           children: [
             NavigationRail(
@@ -260,7 +263,7 @@ class AppShell extends StatelessWidget {
     }
 
     return Scaffold(
-      floatingActionButton: fab,
+      floatingActionButton: showFab ? fab : null,
       body: child,
       bottomNavigationBar: NavigationBar(
         selectedIndex: selectedIndex,
