@@ -38,6 +38,9 @@ pub enum LlaveError {
 
     #[error("Invalid NIF format: {0}")]
     InvalidNif(String),
+
+    #[error("IP rate-limited by AEAT: {message}")]
+    IpRateLimited { message: String },
 }
 
 pub type Result<T> = std::result::Result<T, LlaveError>;

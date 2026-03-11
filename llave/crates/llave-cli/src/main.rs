@@ -151,6 +151,27 @@ fn output(cli: &Cli, json_value: serde_json::Value) {
 }
 
 fn output_error(cli: &Cli, err: &LlaveError) {
+    if let LlaveError::IpRateLimited { message } = err {
+        eprintln!();
+        eprintln!("  ╔══════════════════════════════════════════════════════════════╗");
+        eprintln!("  ║  IP TEMPORARILY BLOCKED BY AEAT                             ║");
+        eprintln!("  ╠══════════════════════════════════════════════════════════════╣");
+        eprintln!("  ║                                                              ║");
+        eprintln!("  ║  Your IP address has exceeded the maximum number of failed   ║");
+        eprintln!("  ║  attempts allowed per day. You can try again tomorrow.       ║");
+        eprintln!("  ║                                                              ║");
+        eprintln!("  ║  Tip: Use a VPN or proxy to switch IP addresses:             ║");
+        eprintln!("  ║    llave --proxy socks5://127.0.0.1:1080 <command>           ║");
+        eprintln!("  ║                                                              ║");
+        eprintln!("  ╚══════════════════════════════════════════════════════════════╝");
+        eprintln!();
+        if cli.verbose {
+            eprintln!("  Server message: {message}");
+            eprintln!();
+        }
+        return;
+    }
+
     if cli.plain {
         eprintln!("Error: {err}");
     } else {

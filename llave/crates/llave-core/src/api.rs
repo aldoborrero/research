@@ -44,6 +44,9 @@ impl<T> ApiResponse<T> {
             let code = self.codigo_error.unwrap_or_default();
             let message = self.mensaje.unwrap_or_else(|| "Unknown error".into());
             tracing::error!(status = %self.status, code = %code, msg = %message, "api error");
+            if code == "16600" {
+                return Err(LlaveError::IpRateLimited { message });
+            }
             Err(LlaveError::Api {
                 status: self.status,
                 code,
