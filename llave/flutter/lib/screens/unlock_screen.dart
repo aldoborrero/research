@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../src/auth_provider.dart';
+import '../src/biometric_service.dart';
 
 /// PIN entry screen shown when an encrypted session exists on disk.
 class UnlockScreen extends ConsumerStatefulWidget {
@@ -17,11 +18,53 @@ class _UnlockScreenState extends ConsumerState<UnlockScreen> {
   String? _error;
   bool _loading = false;
   bool _obscure = true;
+  bool _biometricAvailable = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _initBiometrics();
+  }
 
   @override
   void dispose() {
     _pinController.dispose();
     super.dispose();
+  }
+
+  Future<void> _initBiometrics() async {
+    final available = await BiometricService.isAvailable();
+    final enabled = available && await BiometricService.isEnabled();
+    if (mounted) {
+      setState(() => _biometricAvailable = enabled);
+      if (enabled) {
+        _unlockWithBiometrics();
+      }
+    }
+  }
+
+  Future<void> _unlockWithBiometrics() async {
+    setState(() {
+      _error = null;
+      _loading = true;
+    });
+
+    try {
+      final pin = await BiometricService.authenticate();
+      if (pin == null) {
+        if (mounted) setState(() => _loading = false);
+        return;
+      }
+      await ref.read(authProvider.notifier).unlock(pin);
+      if (mounted) context.go('/');
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _error = 'Biometric unlock failed. Enter your PIN.';
+          _loading = false;
+        });
+      }
+    }
   }
 
   Future<void> _unlock() async {
@@ -67,6 +110,7 @@ class _UnlockScreenState extends ConsumerState<UnlockScreen> {
     );
 
     if (confirmed == true) {
+      await BiometricService.disable();
       await ref.read(authProvider.notifier).logout();
       if (mounted) context.go('/activate');
     }
@@ -108,7 +152,7 @@ class _UnlockScreenState extends ConsumerState<UnlockScreen> {
                 const SizedBox(height: 32),
                 TextField(
                   controller: _pinController,
-                  autofocus: true,
+                  autofocus: !_biometricAvailable,
                   obscureText: _obscure,
                   keyboardType: TextInputType.number,
                   textInputAction: TextInputAction.done,
@@ -140,6 +184,17 @@ class _UnlockScreenState extends ConsumerState<UnlockScreen> {
                         : const Text('Unlock'),
                   ),
                 ),
+                if (_biometricAvailable) ...[
+                  const SizedBox(height: 12),
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      onPressed: _loading ? null : _unlockWithBiometrics,
+                      icon: const Icon(Icons.fingerprint),
+                      label: const Text('Unlock with biometrics'),
+                    ),
+                  ),
+                ],
                 const SizedBox(height: 16),
                 TextButton(
                   onPressed: _forgotPin,

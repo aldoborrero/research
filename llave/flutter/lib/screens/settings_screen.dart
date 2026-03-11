@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../src/auth_provider.dart';
+import '../src/biometric_service.dart';
 import '../src/llave_bridge.dart';
 import '../src/theme_provider.dart';
 
@@ -37,6 +38,27 @@ class SettingsScreen extends ConsumerWidget {
             trailing: const Icon(Icons.chevron_right),
             onTap: () => _showChangePinDialog(context, ref),
           ),
+          ref.watch(biometricStateProvider).when(
+                data: (state) {
+                  if (!state.available) return const SizedBox.shrink();
+                  return SwitchListTile(
+                    secondary: const Icon(Icons.fingerprint),
+                    title: const Text('Biometric unlock'),
+                    subtitle: const Text('Use fingerprint or face to unlock'),
+                    value: state.enabled,
+                    onChanged: (value) async {
+                      if (value) {
+                        await _enableBiometrics(context, ref);
+                      } else {
+                        await BiometricService.disable();
+                      }
+                      ref.invalidate(biometricStateProvider);
+                    },
+                  );
+                },
+                loading: () => const SizedBox.shrink(),
+                error: (_, __) => const SizedBox.shrink(),
+              ),
           const Divider(),
           _SectionHeader('Device'),
           ListTile(
@@ -125,6 +147,56 @@ class SettingsScreen extends ConsumerWidget {
         ThemeMode.dark => 'Dark',
       };
 
+  Future<void> _enableBiometrics(BuildContext context, WidgetRef ref) async {
+    final pinCtrl = TextEditingController();
+    final pin = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Enter your PIN'),
+        content: TextField(
+          controller: pinCtrl,
+          obscureText: true,
+          keyboardType: TextInputType.number,
+          autofocus: true,
+          decoration: const InputDecoration(
+            labelText: 'Current PIN',
+            border: OutlineInputBorder(),
+          ),
+          onSubmitted: (value) => Navigator.pop(ctx, value),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, pinCtrl.text),
+            child: const Text('Confirm'),
+          ),
+        ],
+      ),
+    );
+
+    if (pin == null || pin.isEmpty) return;
+
+    // Verify the PIN is correct by attempting to unlock.
+    try {
+      await ref.read(authProvider.notifier).unlock(pin);
+      await BiometricService.enable(pin);
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Biometric unlock enabled')),
+        );
+      }
+    } catch (_) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Wrong PIN')),
+        );
+      }
+    }
+  }
+
   void _showChangePinDialog(BuildContext context, WidgetRef ref) {
     final oldPinCtrl = TextEditingController();
     final newPinCtrl = TextEditingController();
@@ -199,6 +271,7 @@ class SettingsScreen extends ConsumerWidget {
               Navigator.pop(ctx);
               try {
                 await ref.read(authProvider.notifier).changePin(oldPin, newPin);
+                await BiometricService.updatePin(newPin);
                 if (context.mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(content: Text('PIN changed successfully')),

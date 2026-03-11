@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../src/auth_provider.dart';
+import '../src/biometric_service.dart';
 
 /// Screen shown after activation to let the user choose a PIN.
 class SetPinScreen extends ConsumerStatefulWidget {
@@ -49,11 +50,49 @@ class _SetPinScreenState extends ConsumerState<SetPinScreen> {
 
     try {
       await ref.read(authProvider.notifier).setPin(pin);
+
+      if (!mounted) return;
+
+      // Offer biometric enrollment if the device supports it.
+      final biometricAvailable = await BiometricService.isAvailable();
+      if (biometricAvailable && mounted) {
+        await _offerBiometricEnrollment(pin);
+      }
+
       if (mounted) context.go('/');
     } catch (e) {
       setState(() => _error = e.toString());
     } finally {
       if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _offerBiometricEnrollment(String pin) async {
+    final enable = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        icon: const Icon(Icons.fingerprint, size: 48),
+        title: const Text('Enable biometric unlock?'),
+        content: const Text(
+          'Use your fingerprint or face to unlock Llave instead of '
+          'entering your PIN each time.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Not now'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Enable'),
+          ),
+        ],
+      ),
+    );
+
+    if (enable == true) {
+      await BiometricService.enable(pin);
     }
   }
 
