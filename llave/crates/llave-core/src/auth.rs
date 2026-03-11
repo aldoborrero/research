@@ -46,12 +46,18 @@ pub async fn activate_device(
     let activated = client.clave_is_nif_activated(device_id, nif).await?;
     tracing::debug!(nif_status = %activated.status, "nif check");
 
-    let _activate = client.activate_authentication(device_password, "").await?;
+    let activate_resp = client.activate_authentication(device_password, "").await?;
+    let activate_data = activate_resp.respuesta.unwrap_or(crate::api::ActivateResponse {
+        device_id: Some(device_id.to_string()),
+        user_password: None,
+    });
 
+    // Use the server-returned password, falling back to the input if absent.
+    let saved_password = activate_data.user_password.unwrap_or_else(|| device_password.to_string());
     let session = Session {
-        device_id: device_id.to_string(),
+        device_id: activate_data.device_id.unwrap_or_else(|| device_id.to_string()),
         nif: nif.to_string(),
-        device_password: device_password.to_string(),
+        device_password: saved_password,
         firebase_token: None,
         created_at: chrono::Utc::now().to_rfc3339(),
     };
@@ -275,10 +281,13 @@ pub async fn dni_validate_and_activate(
     })?;
 
     let device_id = activate_data.device_id.unwrap_or_default();
+    // Use the server-returned password, falling back to the input if absent.
+    // The server may transform the password during activation.
+    let saved_password = activate_data.user_password.unwrap_or_else(|| device_password.to_string());
     let session = Session {
         device_id,
         nif: nif.to_string(),
-        device_password: device_password.to_string(),
+        device_password: saved_password,
         firebase_token: None,
         created_at: chrono::Utc::now().to_rfc3339(),
     };
@@ -346,10 +355,11 @@ pub async fn dni_activate_device(
     })?;
 
     let device_id = activate_data.device_id.unwrap_or_default();
+    let saved_password = activate_data.user_password.unwrap_or_else(|| device_password.to_string());
     let session = Session {
         device_id,
         nif: nif.to_string(),
-        device_password: device_password.to_string(),
+        device_password: saved_password,
         firebase_token: None,
         created_at: chrono::Utc::now().to_rfc3339(),
     };
