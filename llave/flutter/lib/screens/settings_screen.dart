@@ -6,6 +6,7 @@ import 'package:go_router/go_router.dart';
 import '../src/auth_provider.dart';
 import '../src/biometric_service.dart';
 import '../src/llave_bridge.dart';
+import '../src/proxy_provider.dart';
 import '../src/theme_provider.dart';
 
 class SettingsScreen extends ConsumerWidget {
@@ -59,6 +60,9 @@ class SettingsScreen extends ConsumerWidget {
                 loading: () => const SizedBox.shrink(),
                 error: (_, __) => const SizedBox.shrink(),
               ),
+          const Divider(),
+          _SectionHeader('Network'),
+          _ProxyTile(),
           const Divider(),
           _SectionHeader('Device'),
           ListTile(
@@ -333,5 +337,93 @@ class _SectionHeader extends StatelessWidget {
             ),
       ),
     );
+  }
+}
+
+class _ProxyTile extends ConsumerWidget {
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final proxy = ref.watch(proxyProvider);
+    final hasProxy = proxy != null && proxy.isNotEmpty;
+
+    return ListTile(
+      leading: Icon(hasProxy ? Icons.vpn_lock : Icons.public),
+      title: const Text('Proxy'),
+      subtitle: Text(hasProxy ? proxy : 'Direct connection'),
+      trailing: const Icon(Icons.chevron_right),
+      onTap: () => _showProxyDialog(context, ref, proxy),
+    );
+  }
+
+  void _showProxyDialog(BuildContext context, WidgetRef ref, String? current) {
+    final controller = TextEditingController(text: current ?? '');
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Proxy'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Route all AEAT requests through an HTTP, HTTPS, or SOCKS5 proxy. '
+              'Useful when your IP has been rate-limited.',
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: controller,
+              autofocus: true,
+              decoration: const InputDecoration(
+                labelText: 'Proxy URL',
+                hintText: 'socks5://127.0.0.1:1080',
+                border: OutlineInputBorder(),
+                prefixIcon: Icon(Icons.link),
+              ),
+              onSubmitted: (_) {
+                Navigator.pop(ctx);
+                _apply(context, ref, controller.text);
+              },
+            ),
+          ],
+        ),
+        actions: [
+          if (current != null && current.isNotEmpty)
+            TextButton(
+              onPressed: () {
+                Navigator.pop(ctx);
+                _apply(context, ref, '');
+              },
+              child: const Text('Clear'),
+            ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              _apply(context, ref, controller.text);
+            },
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _apply(BuildContext context, WidgetRef ref, String value) {
+    final url = value.trim().isEmpty ? null : value.trim();
+    ref.read(proxyProvider.notifier).setProxy(url);
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(url != null ? 'Proxy set to $url' : 'Proxy cleared'),
+        ),
+      );
+    }
   }
 }

@@ -316,3 +316,9 @@ pub unsafe extern "C" fn llave_listen_for_requests(
         max_attempts,
     )))
 }
+
+#[no_mangle]
+pub unsafe extern "C" fn llave_set_proxy(url: *const c_char) -> *mut c_char {
+    crate::api::set_proxy(to_opt(url));
+    ok_json(serde_json::json!(true))
+}

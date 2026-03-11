@@ -117,6 +117,9 @@ abstract class LlaveBridge {
 
   /// Re-encrypt the session with a new PIN (requires old PIN).
   String changeSessionPin(String sealed, String oldPin, String newPin);
+
+  /// Set or clear the proxy URL for all subsequent API calls.
+  void setProxy(String? url);
 }
 
 /// Mock implementation that simulates the Rust bridge for UI development.
@@ -302,6 +305,11 @@ class MockLlaveBridge implements LlaveBridge {
   String changeSessionPin(String sealed, String oldPin, String newPin) =>
       'mock_resealed_blob';
 
+  @override
+  void setProxy(String? url) {
+    // No-op in mock mode.
+  }
+
   void _requireSession() {
     if (_session == null) {
       throw StateError('No active session. Activate device first.');
@@ -441,6 +449,9 @@ class RealLlaveBridge implements LlaveBridge {
   @override
   String changeSessionPin(String sealed, String oldPin, String newPin) =>
       ffi.changeSessionPin(sealed: sealed, oldPin: oldPin, newPin: newPin);
+
+  @override
+  void setProxy(String? url) => ffi.setProxy(url: url);
 }
 
 // ---------------------------------------------------------------------------

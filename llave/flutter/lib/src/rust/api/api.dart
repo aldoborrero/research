@@ -410,3 +410,11 @@ Future<FfiApiResult> listenForRequests(
   return Isolate.run(
       () => _toApiResult(_checkOk(_callListen(lp, 'llave_listen_for_requests', intervalSecs, maxAttempts))));
 }
+
+/// Set or clear the proxy URL for all subsequent API calls.
+///
+/// Supports HTTP, HTTPS, and SOCKS5 URLs (e.g. `socks5://127.0.0.1:1080`).
+/// Pass `null` to disable the proxy.
+void setProxy({String? url}) {
+  _checkOk(_call1(nativeLibPath, 'llave_set_proxy', url));
+}
