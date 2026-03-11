@@ -191,7 +191,7 @@ async fn run(cli: &Cli) -> Result<()> {
             let device_id = uuid::Uuid::new_v4().to_string();
             let device_password = password
                 .clone()
-                .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+                .unwrap_or_else(|| llave_core::crypto::generate_device_password());
 
             let client = LlaveClient::new()?;
             let session =

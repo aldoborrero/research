@@ -104,7 +104,7 @@ pub async fn activate_device(
 ) -> Result<FfiSession, String> {
     let nif = llave_core::config::validate_nif(&nif).map_err(|e| e.to_string())?;
     let device_id = uuid::Uuid::new_v4().to_string();
-    let device_password = password.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+    let device_password = password.unwrap_or_else(|| llave_core::crypto::generate_device_password());
 
     let client = llave_core::LlaveClient::new().map_err(|e| e.to_string())?;
     let session =

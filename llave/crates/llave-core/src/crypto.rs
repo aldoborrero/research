@@ -1,5 +1,6 @@
 use crate::error::{LlaveError, Result};
 use base64::Engine;
+use sha2::{Sha512, Digest};
 
 // ---------------------------------------------------------------------------
 // PIN-based session encryption (Argon2id + AES-256-GCM)
@@ -188,5 +189,22 @@ fn hex_to_bytes(hex: &str) -> Result<Vec<u8>> {
             u8::from_str_radix(&hex[i..i + 2], 16)
                 .map_err(|e| LlaveError::Crypto(format!("Invalid hex: {e}")))
         })
+        .collect()
+}
+
+/// Generate a device password matching the Android app's format.
+///
+/// The Android app generates 256 random alphanumeric characters, then
+/// SHA-512 hashes them, producing a 128-char uppercase hex string.
+pub fn generate_device_password() -> String {
+    use rand::Rng;
+    const CHARSET: &[u8] = b"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+    let mut rng = rand::thread_rng();
+    let random_string: String = (0..256)
+        .map(|_| CHARSET[rng.gen_range(0..CHARSET.len())] as char)
+        .collect();
+    let hash = Sha512::digest(random_string.as_bytes());
+    hash.iter()
+        .map(|b| format!("{:02X}", b))
         .collect()
 }
