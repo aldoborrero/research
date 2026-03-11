@@ -516,7 +516,7 @@ pub async fn dni_complete_activation(
 ) -> Result<FfiApiResult, String> {
     let nif = llave_core::config::validate_nif(&nif).map_err(|e| e.to_string())?;
     let client = llave_core::LlaveClient::new().map_err(|e| e.to_string())?;
-    let device_password = uuid::Uuid::new_v4().to_string();
+    let device_password = llave_core::crypto::generate_device_password();
 
     match llave_core::auth::dni_validate_and_activate(
         &client,
