@@ -179,9 +179,9 @@ class SettingsScreen extends ConsumerWidget {
 
     if (pin == null || pin.isEmpty) return;
 
-    // Verify the PIN is correct by attempting to unlock.
+    // Verify the PIN is correct without disrupting auth state.
     try {
-      await ref.read(authProvider.notifier).unlock(pin);
+      await ref.read(authProvider.notifier).verifyPin(pin);
       await BiometricService.enable(pin);
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

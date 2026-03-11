@@ -111,6 +111,17 @@ class AuthNotifier extends StateNotifier<AuthState> {
     _log.info('PIN changed');
   }
 
+  /// Verify a PIN is correct without modifying auth state.
+  ///
+  /// Attempts to decrypt the sealed blob — throws on wrong PIN.
+  Future<void> verifyPin(String pin) async {
+    final sealed = await SecureSessionStore.read();
+    if (sealed == null || sealed.isEmpty) {
+      throw StateError('No encrypted session');
+    }
+    _bridge.decryptAndLoadSession(sealed, pin);
+  }
+
   /// Check if a session already exists (called on startup).
   void checkSession() {
     final status = _bridge.getStatus();
