@@ -40,6 +40,19 @@ class SettingsScreen extends ConsumerWidget {
           const Divider(),
           _SectionHeader('Device'),
           ListTile(
+            leading: const Icon(Icons.delete_outline),
+            title: const Text('Clear Session'),
+            subtitle: const Text('Log out and clear saved credentials'),
+            onTap: () async {
+              await ref.read(authProvider.notifier).logout();
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Session cleared')),
+                );
+              }
+            },
+          ),
+          ListTile(
             leading: Icon(Icons.logout, color: theme.colorScheme.error),
             title: Text('Deactivate Device', style: TextStyle(color: theme.colorScheme.error)),
             subtitle: const Text('Remove this device from Llave'),
@@ -61,19 +74,6 @@ class SettingsScreen extends ConsumerWidget {
                   ],
                 ),
               );
-            },
-          ),
-          ListTile(
-            leading: const Icon(Icons.delete_outline),
-            title: const Text('Clear Session'),
-            subtitle: const Text('Log out and clear saved credentials'),
-            onTap: () async {
-              await ref.read(authProvider.notifier).logout();
-              if (context.mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Session cleared')),
-                );
-              }
             },
           ),
           const Divider(),
