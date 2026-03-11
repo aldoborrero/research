@@ -198,8 +198,22 @@ class _AccountCard extends StatelessWidget {
               children: [
                 Icon(Icons.person, color: theme.colorScheme.primary),
                 const SizedBox(width: 12),
-                Text('Account', style: theme.textTheme.titleMedium),
-                const Spacer(),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(session.nif,
+                          style: theme.textTheme.titleMedium
+                              ?.copyWith(fontWeight: FontWeight.bold)),
+                      Text(
+                        'Active since ${_formatDate(session.createdAt)}',
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
                 if (loading)
                   const SizedBox(
                     width: 16,
@@ -218,13 +232,9 @@ class _AccountCard extends StatelessWidget {
                   ),
               ],
             ),
-            const SizedBox(height: 16),
-            // Always show NIF + device info from session
-            _AccountRow(label: 'NIF', value: session.nif),
-            _AccountRow(label: 'Device', value: _shortenId(session.deviceId)),
-            _AccountRow(label: 'Since', value: _formatDate(session.createdAt)),
             // Show extra fields from API if loaded
             if (accountData != null) ...[
+              const SizedBox(height: 12),
               if (accountData!['email'] != null)
                 _AccountRow(label: 'Email', value: accountData!['email'].toString()),
               if (accountData!['numTelefono'] != null)
@@ -256,11 +266,6 @@ class _AccountCard extends StatelessWidget {
         '3' => 'Superior',
         _ => level,
       };
-
-  static String _shortenId(String id) {
-    if (id.length <= 12) return id;
-    return '${id.substring(0, 8)}...';
-  }
 
   static String _formatDate(String iso) {
     try {
