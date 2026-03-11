@@ -74,7 +74,13 @@ pub async fn activate_device(
 /// → ClaveRequestPinSv.  The IsNifActivated step is required — without it the
 /// server returns error 307 on RequestPin.
 pub async fn request_pin(client: &LlaveClient, session: &Session) -> Result<(String, String)> {
-    tracing::info!("requesting pin");
+    tracing::info!(
+        device_id = %session.device_id,
+        nif = %session.nif,
+        password_len = session.device_password.len(),
+        password_prefix = %&session.device_password[..session.device_password.len().min(4)],
+        "requesting pin"
+    );
     let _starting = client
         .clave_starting(&session.device_id, &session.nif, "")
         .await?;
