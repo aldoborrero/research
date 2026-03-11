@@ -49,18 +49,19 @@ pub async fn activate_device(
     let activate_resp = client.activate_authentication(device_password, "").await?;
     let activate_data = activate_resp.respuesta.unwrap_or(crate::api::ActivateResponse {
         device_id: Some(device_id.to_string()),
-        token: None,
         user_password: None,
+        token: None,
     });
 
-    // The Clave endpoint returns the credential as `token`; older Llave
-    // endpoints used `user_password`.  Try both, fall back to input.
-    let saved_password = activate_data.token
-        .or(activate_data.user_password)
+    // The client-generated UUID IS the device password. The server may echo
+    // it back as `user_password`, or may not return it at all. The `token`
+    // field is a separate session/push token, NOT the device credential.
+    let saved_password = activate_data.user_password
         .unwrap_or_else(|| device_password.to_string());
     tracing::info!(
         server_device_id = activate_data.device_id.as_deref().unwrap_or("none"),
         saved_password_len = saved_password.len(),
+        server_token_present = activate_data.token.is_some(),
         "activation response"
     );
     let session = Session {
@@ -296,8 +297,7 @@ pub async fn dni_validate_and_activate(
     })?;
 
     let device_id = activate_data.device_id.unwrap_or_default();
-    let saved_password = activate_data.token
-        .or(activate_data.user_password)
+    let saved_password = activate_data.user_password
         .unwrap_or_else(|| device_password.to_string());
     let session = Session {
         device_id,
@@ -370,8 +370,7 @@ pub async fn dni_activate_device(
     })?;
 
     let device_id = activate_data.device_id.unwrap_or_default();
-    let saved_password = activate_data.token
-        .or(activate_data.user_password)
+    let saved_password = activate_data.user_password
         .unwrap_or_else(|| device_password.to_string());
     let session = Session {
         device_id,
@@ -400,7 +399,10 @@ pub async fn poll_pending_requests(
         .clave_starting(&session.device_id, &session.nif, "")
         .await?;
 
-    let timestamp = chrono::Utc::now().timestamp().to_string();
+    // Server expects YYYYMMDDHHmmssSSSSSSSSS format (e.g. "20260310151053593031").
+    let now = chrono::Utc::now();
+    let timestamp = now.format("%Y%m%d%H%M%S").to_string()
+        + &format!("{:06}", now.timestamp_subsec_micros());
     let operations = client
         .request_all_operations(&session.device_id, &session.nif, &timestamp)
         .await?;

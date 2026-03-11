@@ -98,10 +98,9 @@ pub struct ClaveCheckMyDataResponse {
 #[derive(Debug, Deserialize, Serialize)]
 pub struct ActivateResponse {
     pub device_id: Option<String>,
-    /// The server returns the device credential as `token` (Clave endpoints).
-    /// Older Llave endpoints used `user_password` instead.
-    pub token: Option<String>,
     pub user_password: Option<String>,
+    /// Session/push token — NOT the device password.
+    pub token: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
