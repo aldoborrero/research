@@ -235,8 +235,15 @@ class AppShell extends StatelessWidget {
     final useRail = width >= 600;
     final selectedIndex = _currentIndex(context);
 
+    final fab = FloatingActionButton(
+      onPressed: () => context.go('/qr'),
+      tooltip: 'Scan QR',
+      child: const Icon(Icons.qr_code_scanner),
+    );
+
     if (useRail) {
       return Scaffold(
+        floatingActionButton: fab,
         body: Row(
           children: [
             NavigationRail(
@@ -253,6 +260,7 @@ class AppShell extends StatelessWidget {
     }
 
     return Scaffold(
+      floatingActionButton: fab,
       body: child,
       bottomNavigationBar: NavigationBar(
         selectedIndex: selectedIndex,
