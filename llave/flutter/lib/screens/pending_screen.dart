@@ -42,9 +42,12 @@ class _PendingScreenState extends State<PendingScreen> {
       final parsed = jsonDecode(result.data);
       final data = parsed['data'];
       final List<Map<String, dynamic>> items = [];
-      if (data is Map<String, dynamic> && data.isNotEmpty) {
-        // Single request object — wrap in list
-        items.add(Map<String, dynamic>.from(data));
+      if (data is Map<String, dynamic>) {
+        // The response wraps the request inside a "peticion" field.
+        final peticion = data['peticion'];
+        if (peticion is Map<String, dynamic> && peticion.isNotEmpty) {
+          items.add(Map<String, dynamic>.from(peticion));
+        }
       } else if (data is List) {
         for (final item in data) {
           if (item is Map<String, dynamic>) items.add(item);
