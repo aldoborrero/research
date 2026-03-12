@@ -1,0 +1,11 @@
+# Reference implementations (cloned separately)
+references/julius/
+references/augustus/
+
+# Binary files
+binary/*.exe
+binary/*.dll
+
+# Python cache
+__pycache__/
+*.pyc
