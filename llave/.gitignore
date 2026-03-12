@@ -1,0 +1,12 @@
+/target
+/apk
+/result
+*.swp
+*.swo
+.direnv
+
+# flutter_rust_bridge generated files
+crates/llave-core-ffi/src/frb_generated.rs
+flutter/lib/src/rust/frb_generated.dart
+flutter/lib/src/rust/frb_generated.io.dart
+flutter/lib/src/rust/frb_generated.web.dart
