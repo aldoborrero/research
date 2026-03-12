@@ -2,8 +2,18 @@ use crate::api::LlaveClient;
 use crate::error::Result;
 use crate::session::Session;
 use serde::Serialize;
+use std::sync::Mutex;
 use tokio::sync::broadcast;
 use tokio_util::sync::CancellationToken;
+
+/// Epoch timestamp used for the first poll — "give me everything since the
+/// beginning of time".  Format matches the AEAT APK: `yyyyMMdd'T'HHmmssSSS'Z'`.
+const EPOCH_TIMESTAMP: &str = "19700101T000000000Z";
+
+/// Last-seen poll timestamp.  After a successful poll the server returns a
+/// `timestamp` inside the `peticion` object — we store it here so the next
+/// poll only returns newer requests.
+static LAST_POLL_TS: Mutex<Option<String>> = Mutex::new(None);
 
 /// Events emitted by the authentication listener.
 #[derive(Debug, Clone, Serialize)]
@@ -382,9 +392,10 @@ pub async fn dni_activate_device(
 /// Poll for pending authentication requests (single poll).
 ///
 /// Uses `ClaveRequestAllOperationsSv` on www2 which only needs device
-/// credentials.  The previous approach tried `ClaveRequestStateSv` on www12
-/// first, but that endpoint requires a prior DNI auth session — without it
-/// the server redirects to the login page and we get HTML instead of JSON.
+/// credentials.  The timestamp acts as a cursor — on first call we send
+/// the epoch value and on subsequent calls we re-use the timestamp from
+/// the previous successful response so the server only returns newer
+/// requests.
 pub async fn poll_pending_requests(
     client: &LlaveClient,
     session: &Session,
@@ -393,13 +404,45 @@ pub async fn poll_pending_requests(
         .clave_starting(&session.device_id, &session.nif, "")
         .await?;
 
-    // Server expects YYYYMMDDHHmmssSSSSSSSSS format (e.g. "20260310151053593031").
-    let now = chrono::Utc::now();
-    let timestamp = now.format("%Y%m%d%H%M%S").to_string()
-        + &format!("{:06}", now.timestamp_subsec_micros());
+    // Use saved timestamp from previous successful poll, or epoch for first call.
+    let timestamp = LAST_POLL_TS
+        .lock()
+        .ok()
+        .and_then(|g| g.clone())
+        .unwrap_or_else(|| EPOCH_TIMESTAMP.to_string());
+
+    tracing::debug!(timestamp = %timestamp, "polling pending requests");
+
     let operations = client
         .request_all_operations(&session.device_id, &session.nif, &timestamp)
         .await?;
+
+    // Server returns KO when there are no pending operations (e.g. code 205).
+    // Propagate as a proper error so callers can distinguish "no data" from
+    // "got data with null fields".
+    if operations.status != "OK" {
+        return Err(crate::LlaveError::Api {
+            status: operations.status,
+            code: operations.codigo_error.unwrap_or_default(),
+            message: operations
+                .mensaje
+                .unwrap_or_else(|| "No pending operations".into()),
+        });
+    }
+
+    // On success, save the peticion timestamp for next poll so the server
+    // only returns newer requests.
+    if let Some(ref resp) = operations.respuesta {
+        if let Some(ts) = resp
+            .get("peticion")
+            .and_then(|p| p.get("timestamp"))
+            .and_then(|t| t.as_str())
+        {
+            if let Ok(mut guard) = LAST_POLL_TS.lock() {
+                *guard = Some(ts.to_string());
+            }
+        }
+    }
 
     Ok(serde_json::json!({
         "source": "all_operations",
@@ -473,20 +516,26 @@ pub async fn listen_for_requests(
     for attempt in 1..=max_attempts {
         tracing::debug!(attempt = attempt, max = max_attempts, "polling");
 
-        let result = poll_pending_requests(client, session).await?;
-
-        if let Some(data) = result.get("data") {
-            if !data.is_null() {
-                let has_content = match data {
-                    serde_json::Value::Object(m) => !m.is_empty(),
-                    serde_json::Value::Array(a) => !a.is_empty(),
-                    serde_json::Value::String(s) => !s.is_empty(),
-                    _ => true,
-                };
-                if has_content {
-                    return Ok(result);
+        match poll_pending_requests(client, session).await {
+            Ok(result) => {
+                if let Some(data) = result.get("data") {
+                    if !data.is_null() {
+                        let has_content = match data {
+                            serde_json::Value::Object(m) => !m.is_empty(),
+                            serde_json::Value::Array(a) => !a.is_empty(),
+                            serde_json::Value::String(s) => !s.is_empty(),
+                            _ => true,
+                        };
+                        if has_content {
+                            return Ok(result);
+                        }
+                    }
                 }
             }
+            Err(crate::LlaveError::Api { ref code, .. }) if is_no_pending_code(code) => {
+                tracing::debug!(code = %code, "no pending operations, continuing poll");
+            }
+            Err(e) => return Err(e),
         }
 
         if attempt < max_attempts {
@@ -498,6 +547,11 @@ pub async fn listen_for_requests(
         "status": "timeout",
         "message": format!("No pending requests found after {max_attempts} attempts"),
     }))
+}
+
+/// Error codes that indicate "no pending operations" rather than a real failure.
+fn is_no_pending_code(code: &str) -> bool {
+    code == "205"
 }
 
 /// Run an event-driven listener that sends events to a broadcast channel.
@@ -542,6 +596,9 @@ pub async fn run_listener(
                         } else {
                             let _ = tx.send(AuthEvent::NoPending);
                         }
+                    }
+                    Err(crate::LlaveError::Api { ref code, .. }) if is_no_pending_code(code) => {
+                        let _ = tx.send(AuthEvent::NoPending);
                     }
                     Err(e) => {
                         tracing::warn!(err = %e, "poll error");
