@@ -574,7 +574,7 @@ pub async fn set_firebase_token(token_push: String) -> Result<FfiApiResult, Stri
 /// Request an SMS verification code.
 #[frb]
 pub async fn request_sms_code() -> Result<FfiApiResult, String> {
-    let session = llave_core::Session::load().map_err(|e| e.to_string())?;
+    let _session = llave_core::Session::load().map_err(|e| e.to_string())?;
     let client = llave_core::LlaveClient::new().map_err(|e| e.to_string())?;
 
     match client.request_sms_code().await {
@@ -598,7 +598,7 @@ pub async fn validate_sms_code(
     token: String,
     pin: String,
 ) -> Result<FfiApiResult, String> {
-    let session = llave_core::Session::load().map_err(|e| e.to_string())?;
+    let _session = llave_core::Session::load().map_err(|e| e.to_string())?;
     let client = llave_core::LlaveClient::new().map_err(|e| e.to_string())?;
 
     match client.validate_sms_code(&timestamp, &token, &pin).await {
@@ -618,7 +618,7 @@ pub async fn validate_sms_code(
 /// Get Llave Móvil token.
 #[frb]
 pub async fn get_llave_movil() -> Result<FfiApiResult, String> {
-    let session = llave_core::Session::load().map_err(|e| e.to_string())?;
+    let _session = llave_core::Session::load().map_err(|e| e.to_string())?;
     let client = llave_core::LlaveClient::new().map_err(|e| e.to_string())?;
 
     match client.get_llave_movil().await {
@@ -638,7 +638,7 @@ pub async fn get_llave_movil() -> Result<FfiApiResult, String> {
 /// Validate a Llave Móvil token.
 #[frb]
 pub async fn validate_llave_movil(token: String) -> Result<FfiApiResult, String> {
-    let session = llave_core::Session::load().map_err(|e| e.to_string())?;
+    let _session = llave_core::Session::load().map_err(|e| e.to_string())?;
     let client = llave_core::LlaveClient::new().map_err(|e| e.to_string())?;
 
     match client.validate_llave_movil(&token).await {
