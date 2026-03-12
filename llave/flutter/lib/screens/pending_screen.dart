@@ -159,14 +159,18 @@ class _PendingScreenState extends State<PendingScreen> {
                                 color: theme.colorScheme.onSurfaceVariant,
                               ),
                             ),
+                            const SizedBox(height: 16),
+                            FilledButton(onPressed: _refresh, child: const Text('Refresh')),
                           ],
                         ),
                       ),
                     )
-                  : ListView.builder(
-                      padding: const EdgeInsets.all(16),
-                      itemCount: _requests.length,
-                      itemBuilder: (context, index) {
+                  : RefreshIndicator(
+                      onRefresh: _refresh,
+                      child: ListView.builder(
+                        padding: const EdgeInsets.all(16),
+                        itemCount: _requests.length,
+                        itemBuilder: (context, index) {
                         final req = _requests[index];
                         final token = req['tokenClaveMovil']?.toString() ?? '';
                         final idpCode = req['codigoIdP']?.toString() ?? '';
@@ -235,7 +239,8 @@ class _PendingScreenState extends State<PendingScreen> {
                             ),
                           ),
                         );
-                      },
+                        },
+                      ),
                     ),
     );
   }

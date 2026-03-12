@@ -78,30 +78,33 @@ class _MyDataScreenState extends State<MyDataScreen> {
                 )
               : _data == null
                   ? const Center(child: Text('No data'))
-                  : ListView(
-                      padding: const EdgeInsets.all(16),
-                      children: [
-                        Card(
-                          child: Padding(
-                            padding: const EdgeInsets.all(20),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Row(
-                                  children: [
-                                    Icon(Icons.person, color: theme.colorScheme.primary),
-                                    const SizedBox(width: 12),
-                                    Text('Account Information',
-                                        style: theme.textTheme.titleMedium),
-                                  ],
-                                ),
-                                const SizedBox(height: 16),
-                                ..._buildFields(theme),
-                              ],
+                  : RefreshIndicator(
+                      onRefresh: _load,
+                      child: ListView(
+                        padding: const EdgeInsets.all(16),
+                        children: [
+                          Card(
+                            child: Padding(
+                              padding: const EdgeInsets.all(20),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    children: [
+                                      Icon(Icons.person, color: theme.colorScheme.primary),
+                                      const SizedBox(width: 12),
+                                      Text('Account Information',
+                                          style: theme.textTheme.titleMedium),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 16),
+                                  ..._buildFields(theme),
+                                ],
+                              ),
                             ),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
     );
   }

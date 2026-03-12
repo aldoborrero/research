@@ -107,11 +107,14 @@ class _HistoryScreenState extends State<HistoryScreen> {
                             ],
                           ),
                         )
-                      : ListView.builder(
-                          padding: const EdgeInsets.all(16),
-                          itemCount: _operations.length,
-                          itemBuilder: (context, index) =>
-                              _OperationCard(operation: _operations[index]),
+                      : RefreshIndicator(
+                          onRefresh: _load,
+                          child: ListView.builder(
+                            padding: const EdgeInsets.all(16),
+                            itemCount: _operations.length,
+                            itemBuilder: (context, index) =>
+                                _OperationCard(operation: _operations[index]),
+                          ),
                         ),
     );
   }
