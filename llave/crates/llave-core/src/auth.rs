@@ -453,9 +453,15 @@ pub async fn poll_pending_requests(
 
 /// Confirm a pending Llave Móvil authentication request.
 ///
-/// Note: unlike polling, the official app does **not** call `ClaveStartingSv`
-/// before `ClaveAuthenticateSv`.  Doing so resets server-side session state
-/// and causes error 205 ("datos no correctos").
+/// Mirrors the official app's `confirmarPeticionAutenticacionAndContinue`:
+/// 1. `ClaveAuthenticateSv` on www2 — tells AEAT we accept.
+/// 2. If the `WWW12` cookie is present, `ValidarClaveMovil` on www12 —
+///    completes the SSO session so the service provider (e.g. Seguridad
+///    Social) can finalise its login redirect.
+///
+/// Note: the official app does **not** call `ClaveStartingSv` before
+/// authenticate.  Doing so resets server-side session state and causes
+/// error 205.
 pub async fn confirm_authentication(
     client: &LlaveClient,
     session: &Session,
@@ -480,6 +486,21 @@ pub async fn confirm_authentication(
             code: resp.codigo_error.unwrap_or_default(),
             message: resp.mensaje.unwrap_or_else(|| "Confirm failed".into()),
         });
+    }
+
+    // Step 2: validate on www12 to complete the SSO session (matches APK).
+    if client.has_cookie("WWW12") {
+        tracing::info!("WWW12 cookie present — calling ValidarClaveMovil");
+        match client.validate_llave_movil(token_clave_movil).await {
+            Ok(v) => {
+                tracing::info!(status = %v.status, "ValidarClaveMovil response");
+            }
+            Err(e) => {
+                tracing::warn!(err = %e, "ValidarClaveMovil failed (non-fatal)");
+            }
+        }
+    } else {
+        tracing::info!("no WWW12 cookie — skipping ValidarClaveMovil");
     }
 
     Ok(serde_json::json!({

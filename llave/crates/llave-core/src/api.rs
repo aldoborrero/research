@@ -182,6 +182,12 @@ impl LlaveClient {
         })
     }
 
+    /// Check whether a cookie with the given name exists in the jar.
+    pub fn has_cookie(&self, name: &str) -> bool {
+        let cookies = self.cookies.lock().unwrap();
+        cookies.iter().any(|(k, _)| k == name)
+    }
+
     /// Export cookies as JSON for persistence across FFI calls.
     pub fn export_cookies(&self) -> String {
         let cookies = self.cookies.lock().unwrap();
