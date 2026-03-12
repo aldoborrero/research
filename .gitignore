@@ -1,1 +1,10 @@
 target/
+__pycache__/
+*.pyc
+*.egg-info/
+dist/
+.venv/
+*.p12
+*.pfx
+*.pem
+aeat-config.json

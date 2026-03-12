@@ -1,0 +1,37 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "aeat-autonomo"
+version = "0.1.0"
+description = "AEAT tax automation for autónomos — Modelos 303, 130, 100"
+requires-python = ">=3.11"
+dependencies = [
+    "httpx>=0.27",
+    "requests-pkcs12>=1.24",
+    "click>=8.1",
+    "pydantic>=2.0",
+    "structlog>=24.1",
+]
+
+[project.optional-dependencies]
+api = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "pydantic-settings>=2.0",
+]
+dev = [
+    "pytest>=8.0",
+    "pytest-httpx>=0.30",
+    "ruff>=0.4",
+]
+
+[project.scripts]
+aeat = "aeat_autonomo.cli:main"
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W"]
