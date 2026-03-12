@@ -452,6 +452,10 @@ pub async fn poll_pending_requests(
 }
 
 /// Confirm a pending Llave Móvil authentication request.
+///
+/// Note: unlike polling, the official app does **not** call `ClaveStartingSv`
+/// before `ClaveAuthenticateSv`.  Doing so resets server-side session state
+/// and causes error 205 ("datos no correctos").
 pub async fn confirm_authentication(
     client: &LlaveClient,
     session: &Session,
@@ -459,9 +463,6 @@ pub async fn confirm_authentication(
     codigo_idp: &str,
 ) -> Result<serde_json::Value> {
     tracing::info!("confirming auth request");
-    let _starting = client
-        .clave_starting(&session.device_id, &session.nif, "")
-        .await?;
 
     let resp = client
         .authenticate(
@@ -473,6 +474,14 @@ pub async fn confirm_authentication(
         )
         .await?;
 
+    if resp.status != "OK" {
+        return Err(crate::LlaveError::Api {
+            status: resp.status,
+            code: resp.codigo_error.unwrap_or_default(),
+            message: resp.mensaje.unwrap_or_else(|| "Confirm failed".into()),
+        });
+    }
+
     Ok(serde_json::json!({
         "status": resp.status,
         "pending_requests": resp.respuesta.as_ref().and_then(|r| r.pending_requests.as_deref()),
@@ -480,6 +489,10 @@ pub async fn confirm_authentication(
 }
 
 /// Reject a pending Llave Móvil authentication request.
+///
+/// Note: unlike polling, the official app does **not** call `ClaveStartingSv`
+/// before `ClaveCancelAuthenticateSv`.  Doing so resets server-side session
+/// state and causes error 205 ("datos no correctos").
 pub async fn reject_authentication(
     client: &LlaveClient,
     session: &Session,
@@ -487,9 +500,6 @@ pub async fn reject_authentication(
     codigo_idp: &str,
 ) -> Result<serde_json::Value> {
     tracing::info!("rejecting auth request");
-    let _starting = client
-        .clave_starting(&session.device_id, &session.nif, "")
-        .await?;
 
     let resp = client
         .cancel_authenticate(
@@ -499,6 +509,14 @@ pub async fn reject_authentication(
             codigo_idp,
         )
         .await?;
+
+    if resp.status != "OK" {
+        return Err(crate::LlaveError::Api {
+            status: resp.status,
+            code: resp.codigo_error.unwrap_or_default(),
+            message: resp.mensaje.unwrap_or_else(|| "Reject failed".into()),
+        });
+    }
 
     Ok(serde_json::json!({
         "status": resp.status,
