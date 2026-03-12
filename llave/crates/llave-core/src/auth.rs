@@ -400,10 +400,6 @@ pub async fn poll_pending_requests(
     client: &LlaveClient,
     session: &Session,
 ) -> Result<serde_json::Value> {
-    let _starting = client
-        .clave_starting(&session.device_id, &session.nif, "")
-        .await?;
-
     // Use saved timestamp from previous successful poll, or epoch for first call.
     let timestamp = LAST_POLL_TS
         .lock()

@@ -276,7 +276,6 @@ async fn run(cli: &Cli) -> Result<()> {
             let client = LlaveClient::new()?;
             let device_id = uuid::Uuid::new_v4().to_string();
 
-            let _starting = client.clave_starting(&device_id, &nif, "").await?;
             let resp = client.clave_is_nif_activated(&device_id, &nif).await?;
 
             output(
@@ -362,10 +361,6 @@ async fn run(cli: &Cli) -> Result<()> {
             let session = Session::load()?;
             let client = LlaveClient::new()?;
 
-            let _starting = client
-                .clave_starting(&session.device_id, &session.nif, "")
-                .await?;
-
             let resp = client
                 .operations_history(
                     &session.device_id,
@@ -386,10 +381,6 @@ async fn run(cli: &Cli) -> Result<()> {
         Commands::Deactivate => {
             let session = Session::load()?;
             let client = LlaveClient::new()?;
-
-            let _starting = client
-                .clave_starting(&session.device_id, &session.nif, "")
-                .await?;
 
             let resp = client
                 .deactivate_authentication(&session.device_id, &session.nif)
@@ -420,10 +411,6 @@ async fn run(cli: &Cli) -> Result<()> {
         Commands::Qr { value } => {
             let session = Session::load()?;
             let client = LlaveClient::new()?;
-
-            let _starting = client
-                .clave_starting(&session.device_id, &session.nif, "")
-                .await?;
 
             let resp = client
                 .qr_authenticate(&session.device_id, &session.nif, value)
