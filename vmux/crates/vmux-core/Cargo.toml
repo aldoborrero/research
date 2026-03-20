@@ -10,6 +10,7 @@ description = "Core VM lifecycle orchestration for vmux"
 vmux-wezterm = { path = "../vmux-wezterm" }
 vmux-secrets = { path = "../vmux-secrets" }
 vmux-nix = { path = "../vmux-nix" }
+vmux-sandbox = { path = "../vmux-sandbox" }
 tokio.workspace = true
 serde.workspace = true
 thiserror.workspace = true

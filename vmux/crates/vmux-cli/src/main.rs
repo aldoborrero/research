@@ -7,7 +7,8 @@ use clap::{Parser, Subcommand};
 use serde::{Deserialize, Serialize};
 use tracing_subscriber::EnvFilter;
 
-use vmux_core::{AgentTool, Editor, LaunchConfig};
+use vmux_core::{AgentTool, Backend, Editor, LaunchConfig};
+use vmux_sandbox::{NetworkMode, SeccompPolicy};
 use vmux_secrets::SecretSpec;
 use vmux_wezterm::Layout;
 
@@ -100,6 +101,8 @@ struct LaunchArgs {
 #[derive(Debug, Default, Serialize, Deserialize)]
 struct ProjectConfig {
     #[serde(default)]
+    backend: Option<String>,
+    #[serde(default)]
     vm: Option<VmConfig>,
     #[serde(default)]
     workspace: Option<WorkspaceConfig>,
@@ -108,7 +111,17 @@ struct ProjectConfig {
     #[serde(default)]
     layout: Option<LayoutConfig>,
     #[serde(default)]
+    sandbox: Option<SandboxSection>,
+    #[serde(default)]
     secrets: Vec<SecretEntry>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct SandboxSection {
+    network: Option<String>,
+    seccomp: Option<String>,
+    proxy_allow: Option<Vec<String>>,
+    deny_paths: Option<Vec<String>>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -121,6 +134,7 @@ struct VmConfig {
 #[derive(Debug, Serialize, Deserialize)]
 struct WorkspaceConfig {
     host_path: Option<String>,
+    #[serde(alias = "mount")]
     vm_mount: Option<String>,
 }
 
@@ -287,6 +301,53 @@ fn merge_config(args: &LaunchArgs, project: &ProjectConfig) -> Result<LaunchConf
         }
     }
 
+    // Determine backend from config.
+    let backend = project
+        .backend
+        .as_deref()
+        .map(|b| match b {
+            "bwrap" | "sandbox" => Backend::Bwrap,
+            _ => Backend::MicroVm,
+        })
+        .unwrap_or(Backend::Bwrap);
+
+    // Sandbox settings from config.
+    let sandbox_section = project.sandbox.as_ref();
+    let sandbox_network = sandbox_section
+        .and_then(|s| s.network.as_deref())
+        .map(|n| match n {
+            "none" => NetworkMode::None,
+            "host" => NetworkMode::Host,
+            "proxy" => NetworkMode::Proxy(vmux_sandbox::ProxyConfig {
+                allow_domains: sandbox_section
+                    .and_then(|s| s.proxy_allow.clone())
+                    .unwrap_or_default(),
+                ..vmux_sandbox::ProxyConfig::default()
+            }),
+            _ => NetworkMode::None,
+        })
+        .unwrap_or(NetworkMode::None);
+
+    let sandbox_seccomp = sandbox_section
+        .and_then(|s| s.seccomp.as_deref())
+        .map(|s| match s {
+            "strict" => SeccompPolicy::Strict,
+            "default" => SeccompPolicy::Default,
+            _ => SeccompPolicy::None,
+        })
+        .unwrap_or(SeccompPolicy::Default);
+
+    let sandbox_deny_paths = sandbox_section
+        .and_then(|s| s.deny_paths.clone())
+        .unwrap_or_default()
+        .into_iter()
+        .map(PathBuf::from)
+        .collect();
+
+    let sandbox_proxy_domains = sandbox_section
+        .and_then(|s| s.proxy_allow.clone())
+        .unwrap_or_default();
+
     Ok(LaunchConfig {
         name,
         flake,
@@ -300,6 +361,11 @@ fn merge_config(args: &LaunchArgs, project: &ProjectConfig) -> Result<LaunchConf
         use_wezterm: !args.no_wezterm,
         ephemeral: args.ephemeral,
         ssh_timeout: Duration::from_secs(30),
+        backend,
+        sandbox_network,
+        sandbox_seccomp,
+        sandbox_deny_paths,
+        sandbox_proxy_domains,
     })
 }
 
@@ -426,6 +492,11 @@ async fn main() -> Result<()> {
                 use_wezterm: true,
                 ephemeral: false,
                 ssh_timeout: Duration::from_secs(30),
+                backend: Backend::MicroVm,
+                sandbox_network: NetworkMode::None,
+                sandbox_seccomp: SeccompPolicy::Default,
+                sandbox_deny_paths: Vec::new(),
+                sandbox_proxy_domains: Vec::new(),
             };
 
             vmux_core::attach(config).await?;

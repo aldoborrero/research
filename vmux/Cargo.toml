@@ -6,6 +6,7 @@ members = [
     "crates/vmux-wezterm",
     "crates/vmux-secrets",
     "crates/vmux-nix",
+    "crates/vmux-sandbox",
 ]
 
 [workspace.package]

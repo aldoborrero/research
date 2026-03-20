@@ -15,6 +15,7 @@ vmux-core = { path = "../vmux-core" }
 vmux-wezterm = { path = "../vmux-wezterm" }
 vmux-secrets = { path = "../vmux-secrets" }
 vmux-nix = { path = "../vmux-nix" }
+vmux-sandbox = { path = "../vmux-sandbox" }
 clap.workspace = true
 serde.workspace = true
 serde_json.workspace = true

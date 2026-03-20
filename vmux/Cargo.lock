@@ -696,6 +696,7 @@ dependencies = [
  "tracing-subscriber",
  "vmux-core",
  "vmux-nix",
+ "vmux-sandbox",
  "vmux-secrets",
  "vmux-wezterm",
 ]
@@ -710,6 +711,7 @@ dependencies = [
  "tokio",
  "tracing",
  "vmux-nix",
+ "vmux-sandbox",
  "vmux-secrets",
  "vmux-wezterm",
 ]
@@ -719,6 +721,18 @@ name = "vmux-nix"
 version = "0.1.0"
 dependencies = [
  "ipnetwork",
+ "serde",
+ "serde_json",
+ "thiserror",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "vmux-sandbox"
+version = "0.1.0"
+dependencies = [
+ "dirs",
  "serde",
  "serde_json",
  "thiserror",

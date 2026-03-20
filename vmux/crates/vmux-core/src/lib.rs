@@ -4,6 +4,9 @@ use std::time::Duration;
 use thiserror::Error;
 
 use vmux_nix::{MicroVm, MicroVmConfig, MicroVmError};
+use vmux_sandbox::{
+    NetworkMode, Sandbox, SandboxConfig, SandboxError, SeccompPolicy,
+};
 use vmux_secrets::{SecretError, SecretResolver, SecretSpec};
 use vmux_wezterm::{Layout, PaneRole, SessionState, WezTermError, WezTermSession};
 
@@ -19,11 +22,23 @@ pub enum LaunchError {
     #[error("WezTerm error: {0}")]
     WezTerm(#[from] WezTermError),
 
+    #[error("sandbox error: {0}")]
+    Sandbox(#[from] SandboxError),
+
     #[error("tool provisioning failed: {tool} — {reason}")]
     ToolProvision { tool: String, reason: String },
 
     #[error("configuration error: {0}")]
     Config(String),
+}
+
+/// Backend for running agents: microvm (legacy) or bwrap sandbox.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Backend {
+    /// Full microvm.nix VM (SSH-based, requires NixOS).
+    MicroVm,
+    /// Bubblewrap namespace sandbox (direct process, lightweight).
+    Bwrap,
 }
 
 /// Agentic tool to provision inside the VM.
@@ -112,6 +127,16 @@ pub struct LaunchConfig {
     pub ephemeral: bool,
     /// SSH readiness timeout.
     pub ssh_timeout: Duration,
+    /// Backend to use (MicroVm or Bwrap).
+    pub backend: Backend,
+    /// Sandbox network mode (only used with Bwrap backend).
+    pub sandbox_network: NetworkMode,
+    /// Sandbox seccomp policy (only used with Bwrap backend).
+    pub sandbox_seccomp: SeccompPolicy,
+    /// Extra paths to deny read access (only used with Bwrap backend).
+    pub sandbox_deny_paths: Vec<PathBuf>,
+    /// Allowed proxy domains (only used with Bwrap backend + Proxy network).
+    pub sandbox_proxy_domains: Vec<String>,
 }
 
 /// Inject secrets into the VM via SSH pipe to environment file in tmpfs.
@@ -278,8 +303,129 @@ pub async fn attach(config: LaunchConfig) -> Result<(), LaunchError> {
     Ok(())
 }
 
+/// Build a `SandboxConfig` from the launch config and resolved secrets.
+fn build_sandbox_config(
+    config: &LaunchConfig,
+    secrets: &[(String, vmux_secrets::SecretValue)],
+) -> SandboxConfig {
+    let mut sandbox_cfg = SandboxConfig::for_workspace(&config.name, &config.workspace);
+
+    // Network mode.
+    sandbox_cfg.network = config.sandbox_network.clone();
+
+    // Inject proxy env vars if using proxy mode.
+    if let NetworkMode::Proxy(ref proxy_cfg) = sandbox_cfg.network {
+        for (k, v) in proxy_cfg.sandbox_env() {
+            sandbox_cfg.env.insert(k, v);
+        }
+    }
+
+    // Inject secrets as env vars.
+    for (name, value) in secrets {
+        sandbox_cfg.env.insert(name.clone(), value.expose().to_string());
+    }
+
+    // Extra deny paths.
+    for path in &config.sandbox_deny_paths {
+        sandbox_cfg.deny_paths.push(path.clone());
+    }
+
+    // Seccomp policy.
+    sandbox_cfg.seccomp = config.sandbox_seccomp.clone();
+
+    sandbox_cfg
+}
+
+/// Build a bwrap command string for a given tool, suitable for a WezTerm pane.
+fn sandbox_pane_cmd(sandbox: &Sandbox, command: &str) -> Result<String, LaunchError> {
+    let cmd = sandbox.command_string(&[command.into()])?;
+    Ok(cmd)
+}
+
+/// Send commands to WezTerm panes using bwrap sandbox.
+async fn send_sandbox_pane_commands(
+    session: &WezTermSession,
+    sandbox: &Sandbox,
+    config: &LaunchConfig,
+) -> Result<(), LaunchError> {
+    if session.panes.contains_key(&PaneRole::Editor) {
+        let editor = config
+            .editor
+            .as_ref()
+            .map(|e| e.command())
+            .unwrap_or("nvim");
+        let cmd = sandbox_pane_cmd(sandbox, editor)?;
+        session.send_command(PaneRole::Editor, &cmd).await?;
+    }
+    if session.panes.contains_key(&PaneRole::Agent) {
+        let tool = config
+            .tool
+            .as_ref()
+            .map(|t| t.launch_command())
+            .unwrap_or("bash");
+        let cmd = sandbox_pane_cmd(sandbox, tool)?;
+        session.send_command(PaneRole::Agent, &cmd).await?;
+    }
+    if session.panes.contains_key(&PaneRole::Logs) {
+        // Logs pane runs unsandboxed — it's just watching the host process.
+        let cmd = "echo 'Sandbox logs — no journalctl in bwrap mode'";
+        session.send_command(PaneRole::Logs, cmd).await?;
+    }
+    Ok(())
+}
+
+/// Launch using the bwrap sandbox backend.
+async fn launch_sandbox(config: LaunchConfig) -> Result<(), LaunchError> {
+    // Step 1: Resolve secrets.
+    let resolver = SecretResolver::new();
+    let secrets = resolver.resolve_all(&config.secrets).await?;
+    tracing::info!(count = secrets.len(), "secrets resolved");
+
+    // Step 2: Build sandbox config.
+    let sandbox_cfg = build_sandbox_config(&config, &secrets);
+    let sandbox = Sandbox::new(sandbox_cfg);
+
+    tracing::info!(
+        name = %config.name,
+        network = ?config.sandbox_network,
+        "sandbox configured"
+    );
+
+    // Step 3: Open WezTerm or run directly.
+    if config.use_wezterm {
+        let session = WezTermSession::open(config.layout).await?;
+        session.save_state(&config.name)?;
+
+        send_sandbox_pane_commands(&session, &sandbox, &config).await?;
+
+        tracing::info!("WezTerm session opened, waiting for close...");
+        session.wait_for_close().await?;
+        SessionState::remove(&config.name);
+    } else {
+        // No WezTerm — run agent directly in the sandbox.
+        let tool = config
+            .tool
+            .as_ref()
+            .map(|t| t.launch_command())
+            .unwrap_or("bash");
+
+        let cmd = sandbox.command_string(&[tool.into()])?;
+        println!("Sandbox command:\n  {}", cmd);
+        println!("\nWorkspace: {} -> /workspace", config.workspace.display());
+        println!("Network: {:?}", config.sandbox_network);
+        println!("Secrets injected: {}", secrets.len());
+    }
+
+    Ok(())
+}
+
 /// Run the full vmux launch sequence.
 pub async fn launch(config: LaunchConfig) -> Result<(), LaunchError> {
+    // Dispatch to the appropriate backend.
+    if config.backend == Backend::Bwrap {
+        return launch_sandbox(config).await;
+    }
+
     // Step 1: Resolve secrets.
     let resolver = SecretResolver::new();
     let secrets = resolver.resolve_all(&config.secrets).await?;

@@ -1,22 +1,48 @@
 # vmux configuration — see `vmux launch --help` for all options.
 
-[vm]
-name = "dev"
-flake = "."                    # path to the flake containing the microVM
-ip = "192.168.83.10"
+# Backend: "bwrap" (bubblewrap sandbox) or "microvm" (full NixOS VM).
+backend = "bwrap"
 
 [workspace]
-host_path = "."                # host directory mounted into the VM
-vm_mount = "/workspace"        # mount point inside the VM
+host_path = "."                # host directory mounted into the sandbox
+mount = "/workspace"           # mount point inside the sandbox
 
 [tools]
-agent = "claude"               # claude | aider | codex | <custom command>
+agent = "claude"               # claude | aider | codex | pi-agent | <custom command>
 editor = "avim"                # avim | nvim | hx | emacs | <custom command>
 
 [layout]
 type = "editor-agent"          # editor-agent | agent-only | editor-only | full
 
-# Secrets are injected as env vars inside the VM.
+# ── Sandbox configuration (bwrap backend) ─────────────────────────────
+[sandbox]
+# Network isolation mode:
+#   "none"   — no network at all (most secure)
+#   "proxy"  — API access through domain-filtering proxy
+#   "host"   — full host network (no isolation)
+network = "proxy"
+
+# Seccomp policy:
+#   "none"    — no syscall filtering
+#   "default" — block namespace escapes + raw sockets
+#   "strict"  — also block ptrace, mount, bpf, etc.
+seccomp = "default"
+
+# Domains reachable via proxy (only when network = "proxy").
+proxy_allow = [
+    "api.anthropic.com",
+    "api.openai.com",
+    "github.com",
+    "api.github.com",
+]
+
+# Paths hidden from the sandbox (relative to $HOME).
+# These are always denied in addition to built-in defaults
+# (~/.ssh, ~/.gnupg, ~/.aws, ~/.docker, ~/.kube, etc.).
+# deny_paths = ["extra/sensitive/dir"]
+
+# ── Secrets ────────────────────────────────────────────────────────────
+# Injected as env vars into the sandbox.
 # Supported sources: op://…, sops:…, env:…, file:…
 
 # [[secrets]]
@@ -26,3 +52,9 @@ type = "editor-agent"          # editor-agent | agent-only | editor-only | full
 # [[secrets]]
 # name = "GITHUB_TOKEN"
 # source = "env:GITHUB_TOKEN"
+
+# ── MicroVM configuration (microvm backend only) ──────────────────────
+# [vm]
+# name = "dev"
+# flake = "."
+# ip = "192.168.83.10"

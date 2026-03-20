@@ -1,0 +1,13 @@
+[package]
+name = "vmux-sandbox"
+version = "0.1.0"
+edition = "2021"
+description = "Bubblewrap sandbox with seccomp and proxy daemon for vmux"
+
+[dependencies]
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+dirs = { workspace = true }
