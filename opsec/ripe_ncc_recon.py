@@ -4,7 +4,12 @@ import time
 from collections import defaultdict
 # ── RIPE NCC ──────────────────────────────────────────────────────────────────
 def buscar_ripe(query: str, delay: float = 1.0):
-    """Busca rangos de IP en RIPE NCC"""
+    """Busca rangos de IP en RIPE NCC.
+
+    RIPE search API treats multi-word strings as multiple lookup keys.
+    For org name searches, single keywords work best (e.g. "Indra" not
+    "Indra Sistemas"). For exact ranges use IPs/AS numbers directly.
+    """
     url = "https://rest.db.ripe.net/search.json"
     params = {
         "query-string": query,
@@ -14,8 +19,13 @@ def buscar_ripe(query: str, delay: float = 1.0):
     }
     headers = {"Accept": "application/json"}
 
-    r = requests.get(url, params=params, headers=headers, timeout=15)
-    r.raise_for_status()
+    try:
+        r = requests.get(url, params=params, headers=headers, timeout=15)
+        r.raise_for_status()
+    except requests.RequestException as e:
+        print(f"  [!] RIPE error para '{query}': {e}")
+        return []
+
     data = r.json()
 
     resultados = []
@@ -38,8 +48,14 @@ def buscar_ripe(query: str, delay: float = 1.0):
 def buscar_bgpview_asn(asn: str):
     """Obtiene prefijos anunciados por un ASN. BGPView es gratuito y sin key."""
     url = f"https://api.bgpview.io/asn/{asn}/prefixes"
-    r = requests.get(url, timeout=15)
-    r.raise_for_status()
+
+    try:
+        r = requests.get(url, timeout=15)
+        r.raise_for_status()
+    except requests.RequestException as e:
+        print(f"  [!] BGPView ASN error para '{asn}': {e}")
+        return []
+
     data = r.json()
 
     prefijos = []
@@ -55,8 +71,14 @@ def buscar_bgpview_asn(asn: str):
 def buscar_bgpview_org(nombre: str):
     """Busca ASNs por nombre de organización."""
     url = "https://api.bgpview.io/search"
-    r = requests.get(url, params={"query_term": nombre}, timeout=15)
-    r.raise_for_status()
+
+    try:
+        r = requests.get(url, params={"query_term": nombre}, timeout=15)
+        r.raise_for_status()
+    except requests.RequestException as e:
+        print(f"  [!] BGPView org error para '{nombre}': {e}")
+        return []
+
     data = r.json()
 
     asns = []
@@ -115,7 +137,7 @@ def buscar_shodan(query: str, api_key: str, max_paginas: int = 1):
 # ── MAIN ──────────────────────────────────────────────────────────────────────
 TARGETS = {
     "DGT": {
-        "ripe_queries": ["Direccion General de Trafico", "DGT Spain"],
+        "ripe_queries": ["DGT"],
         "bgpview_queries": ["Direccion General de Trafico", "DGT"],
         "shodan_queries": [
             'org:"Direccion General de Trafico"',
@@ -124,7 +146,7 @@ TARGETS = {
         ],
     },
     "Indra": {
-        "ripe_queries": ["Indra Sistemas"],
+        "ripe_queries": ["Indra"],
         "bgpview_queries": ["Indra Sistemas"],
         "shodan_queries": [
             'org:"Indra Sistemas" country:ES',
@@ -133,7 +155,7 @@ TARGETS = {
         ],
     },
     "AEAT": {
-        "ripe_queries": ["Agencia Tributaria", "AEAT"],
+        "ripe_queries": ["AEAT"],
         "bgpview_queries": ["Agencia Tributaria"],
         "shodan_queries": [
             'hostname:".aeat.es"',
