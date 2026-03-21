@@ -37,6 +37,12 @@ enum Commands {
     /// Print resolved configuration as JSON (without launching).
     Config(ConfigArgs),
 
+    /// Print shell exports for direnv integration.
+    ///
+    /// Resolves secrets and configuration from vmux.toml, then outputs
+    /// `export VAR=value` lines suitable for `eval $(vmux direnv)`.
+    Direnv(DirenvArgs),
+
     /// List running vmux-managed VMs.
     List,
 
@@ -90,6 +96,17 @@ struct ConfigArgs {
     name: Option<String>,
 
     /// Host directory to mount as /workspace.
+    #[arg(long, default_value = ".")]
+    workspace: PathBuf,
+
+    /// Path to vmux.toml config file (default: auto-detect).
+    #[arg(long, short = 'c')]
+    config: Option<PathBuf>,
+}
+
+#[derive(Parser, Debug)]
+struct DirenvArgs {
+    /// Host directory to use as workspace context.
     #[arg(long, default_value = ".")]
     workspace: PathBuf,
 
@@ -438,6 +455,12 @@ fn build_launch_config(
     })
 }
 
+/// Shell-escape a value for use in `export VAR=value` statements.
+/// Uses single quotes with proper escaping for embedded single quotes.
+fn shell_escape_value(s: &str) -> String {
+    format!("'{}'", s.replace('\'', "'\\''"))
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     tracing_subscriber::fmt()
@@ -533,6 +556,103 @@ async fn main() -> Result<()> {
                 },
             };
             println!("{}", serde_json::to_string_pretty(&resolved)?);
+        }
+
+        Commands::Direnv(args) => {
+            let project = load_project_config(args.config.as_ref());
+
+            let workspace = std::fs::canonicalize(&args.workspace)
+                .unwrap_or_else(|_| args.workspace.clone());
+
+            let workspace_mount = project
+                .workspace
+                .as_ref()
+                .and_then(|w| w.vm_mount.as_ref())
+                .cloned()
+                .unwrap_or_else(|| "/workspace".to_string());
+
+            let backend = project
+                .backend
+                .as_deref()
+                .unwrap_or("bwrap")
+                .to_string();
+
+            let name = project
+                .vm
+                .as_ref()
+                .and_then(|v| v.name.clone())
+                .unwrap_or_default();
+
+            // Vmux metadata exports.
+            let mut exports: Vec<(String, String)> = vec![
+                ("VMUX_ACTIVE".into(), "1".into()),
+                ("VMUX_BACKEND".into(), backend),
+                ("VMUX_WORKSPACE".into(), workspace.display().to_string()),
+                ("VMUX_WORKSPACE_MOUNT".into(), workspace_mount),
+            ];
+            if !name.is_empty() {
+                exports.push(("VMUX_NAME".into(), name));
+            }
+
+            // Tool and editor from config.
+            if let Some(ref tools) = project.tools {
+                if let Some(ref agent) = tools.agent {
+                    exports.push(("VMUX_AGENT".into(), agent.clone()));
+                }
+                if let Some(ref editor) = tools.editor {
+                    exports.push(("VMUX_EDITOR".into(), editor.clone()));
+                }
+            }
+
+            // Sandbox env vars (non-secret, static config).
+            if let Some(ref sandbox) = project.sandbox {
+                if let Some(ref network) = sandbox.network {
+                    exports.push(("VMUX_SANDBOX_NETWORK".into(), network.clone()));
+                }
+                if let Some(ref seccomp) = sandbox.seccomp {
+                    exports.push(("VMUX_SANDBOX_SECCOMP".into(), seccomp.clone()));
+                }
+                if let Some(ref env) = sandbox.env {
+                    for (k, v) in env {
+                        exports.push((k.clone(), v.clone()));
+                    }
+                }
+            }
+
+            // Resolve secrets.
+            let mut secret_specs = Vec::new();
+            for entry in &project.secrets {
+                match vmux_secrets::SecretSource::parse(&entry.source) {
+                    Ok(source) => {
+                        secret_specs.push(SecretSpec {
+                            name: entry.name.clone(),
+                            source,
+                        });
+                    }
+                    Err(e) => {
+                        eprintln!("vmux direnv: warning: skipping secret '{}': {}", entry.name, e);
+                    }
+                }
+            }
+
+            if !secret_specs.is_empty() {
+                let resolver = vmux_secrets::SecretResolver::new();
+                match resolver.resolve_all(&secret_specs).await {
+                    Ok(resolved) => {
+                        for (name, value) in &resolved {
+                            exports.push((name.clone(), value.expose().to_string()));
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("vmux direnv: warning: secret resolution failed: {}", e);
+                    }
+                }
+            }
+
+            // Output shell exports.
+            for (key, value) in &exports {
+                println!("export {}={}", key, shell_escape_value(value));
+            }
         }
 
         Commands::List => {
