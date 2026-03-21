@@ -13,6 +13,36 @@ use thiserror::Error;
 use crate::proxy::ProxyConfig;
 use crate::seccomp::SeccompPolicy;
 
+/// Per-namespace toggle for unsharing.
+///
+/// Controls which Linux namespaces are isolated via `--unshare-*` flags.
+/// Network namespace is implicitly controlled by [`NetworkMode`].
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NamespaceConfig {
+    /// Isolate PID namespace (`--unshare-pid`). Default: true.
+    pub pid: bool,
+    /// Isolate IPC namespace (`--unshare-ipc`). Default: true.
+    pub ipc: bool,
+    /// Isolate UTS namespace (`--unshare-uts`). Default: false.
+    pub uts: bool,
+    /// Isolate user namespace (`--unshare-user`). Default: false.
+    pub user: bool,
+    /// Isolate cgroup namespace (`--unshare-cgroup`). Default: false.
+    pub cgroup: bool,
+}
+
+impl Default for NamespaceConfig {
+    fn default() -> Self {
+        NamespaceConfig {
+            pid: true,
+            ipc: true,
+            uts: false,
+            user: false,
+            cgroup: false,
+        }
+    }
+}
+
 /// Errors from sandbox operations.
 #[derive(Debug, Error)]
 pub enum SandboxError {
@@ -80,6 +110,9 @@ pub struct SandboxConfig {
     /// Network isolation mode.
     pub network: NetworkMode,
 
+    /// Namespace isolation toggles.
+    pub namespaces: NamespaceConfig,
+
     /// Extra read-only bind mounts (beyond platform defaults).
     pub ro_binds: Vec<BindMount>,
 
@@ -88,6 +121,15 @@ pub struct SandboxConfig {
 
     /// Paths to hide entirely (mounted as tmpfs or /dev/null).
     pub deny_paths: Vec<PathBuf>,
+
+    /// Whether to include the built-in default deny paths.
+    pub use_default_deny_paths: bool,
+
+    /// Extra tmpfs mounts (beyond the default /tmp and /home).
+    pub tmpfs_mounts: Vec<PathBuf>,
+
+    /// Whether to mount the default tmpfs at /tmp and /home.
+    pub use_default_tmpfs: bool,
 
     /// Environment variables to inject.
     pub env: HashMap<String, String>,
@@ -135,6 +177,7 @@ impl SandboxConfig {
             name: name.into(),
             workdir: PathBuf::from("/workspace"),
             network: NetworkMode::None,
+            namespaces: NamespaceConfig::default(),
             ro_binds: Vec::new(),
             rw_binds: vec![
                 BindMount {
@@ -143,10 +186,10 @@ impl SandboxConfig {
                     readonly: false,
                 },
             ],
-            deny_paths: DEFAULT_DENY_PATHS
-                .iter()
-                .map(PathBuf::from)
-                .collect(),
+            deny_paths: Vec::new(),
+            use_default_deny_paths: true,
+            tmpfs_mounts: Vec::new(),
+            use_default_tmpfs: true,
             env: HashMap::new(),
             seccomp: SeccompPolicy::Default,
         }
@@ -178,8 +221,22 @@ impl Sandbox {
         args.extend(["--new-session".into(), "--die-with-parent".into()]);
 
         // -- Namespace isolation --
-        args.push("--unshare-pid".into());
-        args.push("--unshare-ipc".into());
+        let ns = &self.config.namespaces;
+        if ns.pid {
+            args.push("--unshare-pid".into());
+        }
+        if ns.ipc {
+            args.push("--unshare-ipc".into());
+        }
+        if ns.uts {
+            args.push("--unshare-uts".into());
+        }
+        if ns.user {
+            args.push("--unshare-user".into());
+        }
+        if ns.cgroup {
+            args.push("--unshare-cgroup".into());
+        }
 
         match &self.config.network {
             NetworkMode::Host => {}
@@ -204,9 +261,14 @@ impl Sandbox {
         args.extend(["--dev".into(), "/dev".into()]);
         args.extend(["--proc".into(), "/proc".into()]);
 
-        // -- tmpfs for /tmp and /home --
-        args.extend(["--tmpfs".into(), "/tmp".into()]);
-        args.extend(["--tmpfs".into(), "/home".into()]);
+        // -- tmpfs mounts --
+        if self.config.use_default_tmpfs {
+            args.extend(["--tmpfs".into(), "/tmp".into()]);
+            args.extend(["--tmpfs".into(), "/home".into()]);
+        }
+        for path in &self.config.tmpfs_mounts {
+            args.extend(["--tmpfs".into(), path.display().to_string()]);
+        }
 
         // -- TLS certs (needed for API calls) --
         for cert_path in &["/etc/ssl", "/etc/pki", "/etc/ca-certificates"] {
@@ -255,7 +317,13 @@ impl Sandbox {
         }
 
         // -- Deny paths (hide sensitive dirs from home) --
-        for deny in &self.config.deny_paths {
+        let default_deny: Vec<PathBuf> = if self.config.use_default_deny_paths {
+            DEFAULT_DENY_PATHS.iter().map(PathBuf::from).collect()
+        } else {
+            Vec::new()
+        };
+        let all_deny_paths = default_deny.iter().chain(self.config.deny_paths.iter());
+        for deny in all_deny_paths {
             let home_path = dirs::home_dir()
                 .map(|h| h.join(deny))
                 .unwrap_or_else(|| PathBuf::from("/nonexistent"));

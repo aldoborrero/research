@@ -8,8 +8,10 @@ use clap::{Parser, Subcommand};
 use serde::{Deserialize, Serialize};
 use tracing_subscriber::EnvFilter;
 
+use std::collections::HashMap;
+
 use vmux_core::{AgentTool, Backend, Editor, LaunchConfig};
-use vmux_sandbox::{NetworkMode, SeccompPolicy};
+use vmux_sandbox::{BindMount, NamespaceConfig, NetworkMode, SeccompPolicy};
 use vmux_secrets::SecretSpec;
 
 /// vmux — sandboxed agent launcher
@@ -119,6 +121,35 @@ struct SandboxSection {
     seccomp: Option<String>,
     proxy_allow: Option<Vec<String>>,
     deny_paths: Option<Vec<String>>,
+    /// Set to false to disable built-in default deny paths.
+    use_default_deny_paths: Option<bool>,
+    /// Namespace toggles.
+    namespaces: Option<NamespacesSection>,
+    /// Extra read-only bind mounts.
+    ro_binds: Option<Vec<BindMountEntry>>,
+    /// Extra read-write bind mounts.
+    rw_binds: Option<Vec<BindMountEntry>>,
+    /// Extra tmpfs mount points.
+    tmpfs: Option<Vec<String>>,
+    /// Set to false to disable default /tmp and /home tmpfs.
+    use_default_tmpfs: Option<bool>,
+    /// Extra environment variables.
+    env: Option<HashMap<String, String>>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct NamespacesSection {
+    pid: Option<bool>,
+    ipc: Option<bool>,
+    uts: Option<bool>,
+    user: Option<bool>,
+    cgroup: Option<bool>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct BindMountEntry {
+    src: String,
+    dst: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -318,8 +349,67 @@ fn build_launch_config(
         .map(PathBuf::from)
         .collect();
 
+    let sandbox_use_default_deny_paths = sandbox_section
+        .and_then(|s| s.use_default_deny_paths)
+        .unwrap_or(true);
+
     let sandbox_proxy_domains = sandbox_section
         .and_then(|s| s.proxy_allow.clone())
+        .unwrap_or_default();
+
+    let sandbox_namespaces = {
+        let ns = sandbox_section.and_then(|s| s.namespaces.as_ref());
+        let defaults = NamespaceConfig::default();
+        NamespaceConfig {
+            pid: ns.and_then(|n| n.pid).unwrap_or(defaults.pid),
+            ipc: ns.and_then(|n| n.ipc).unwrap_or(defaults.ipc),
+            uts: ns.and_then(|n| n.uts).unwrap_or(defaults.uts),
+            user: ns.and_then(|n| n.user).unwrap_or(defaults.user),
+            cgroup: ns.and_then(|n| n.cgroup).unwrap_or(defaults.cgroup),
+        }
+    };
+
+    let sandbox_ro_binds = sandbox_section
+        .and_then(|s| s.ro_binds.as_ref())
+        .map(|binds| {
+            binds
+                .iter()
+                .map(|b| BindMount {
+                    src: PathBuf::from(&b.src),
+                    dst: PathBuf::from(&b.dst),
+                    readonly: true,
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+
+    let sandbox_rw_binds = sandbox_section
+        .and_then(|s| s.rw_binds.as_ref())
+        .map(|binds| {
+            binds
+                .iter()
+                .map(|b| BindMount {
+                    src: PathBuf::from(&b.src),
+                    dst: PathBuf::from(&b.dst),
+                    readonly: false,
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+
+    let sandbox_tmpfs_mounts = sandbox_section
+        .and_then(|s| s.tmpfs.clone())
+        .unwrap_or_default()
+        .into_iter()
+        .map(PathBuf::from)
+        .collect();
+
+    let sandbox_use_default_tmpfs = sandbox_section
+        .and_then(|s| s.use_default_tmpfs)
+        .unwrap_or(true);
+
+    let sandbox_env = sandbox_section
+        .and_then(|s| s.env.clone())
         .unwrap_or_default();
 
     Ok(LaunchConfig {
@@ -336,8 +426,15 @@ fn build_launch_config(
         backend,
         sandbox_network,
         sandbox_seccomp,
+        sandbox_namespaces,
         sandbox_deny_paths,
+        sandbox_use_default_deny_paths,
         sandbox_proxy_domains,
+        sandbox_ro_binds,
+        sandbox_rw_binds,
+        sandbox_tmpfs_mounts,
+        sandbox_use_default_tmpfs,
+        sandbox_env,
     })
 }
 

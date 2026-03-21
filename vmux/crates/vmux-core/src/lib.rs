@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -5,7 +6,7 @@ use thiserror::Error;
 
 use vmux_nix::{MicroVm, MicroVmConfig, MicroVmError};
 use vmux_sandbox::{
-    NetworkMode, Sandbox, SandboxConfig, SandboxError, SeccompPolicy,
+    BindMount, NamespaceConfig, NetworkMode, Sandbox, SandboxConfig, SandboxError, SeccompPolicy,
 };
 use vmux_secrets::{SecretError, SecretResolver, SecretSpec, SecretValue};
 
@@ -157,8 +158,15 @@ pub struct CommonConfig {
 pub struct BwrapConfig {
     pub network: NetworkMode,
     pub seccomp: SeccompPolicy,
+    pub namespaces: NamespaceConfig,
     pub deny_paths: Vec<PathBuf>,
+    pub use_default_deny_paths: bool,
     pub proxy_domains: Vec<String>,
+    pub ro_binds: Vec<BindMount>,
+    pub rw_binds: Vec<BindMount>,
+    pub tmpfs_mounts: Vec<PathBuf>,
+    pub use_default_tmpfs: bool,
+    pub extra_env: HashMap<String, String>,
 }
 
 /// Bwrap backend provider.
@@ -191,22 +199,39 @@ impl BackendProvider for BwrapProvider {
         let mut sandbox_cfg = SandboxConfig::for_workspace(&common.name, &common.workspace);
 
         sandbox_cfg.network = self.config.network.clone();
+        sandbox_cfg.namespaces = self.config.namespaces.clone();
+        sandbox_cfg.seccomp = self.config.seccomp.clone();
+        sandbox_cfg.use_default_deny_paths = self.config.use_default_deny_paths;
+        sandbox_cfg.use_default_tmpfs = self.config.use_default_tmpfs;
 
+        // Extra bind mounts from config.
+        sandbox_cfg.ro_binds.extend(self.config.ro_binds.iter().cloned());
+        sandbox_cfg.rw_binds.extend(self.config.rw_binds.iter().cloned());
+
+        // Extra tmpfs mounts.
+        sandbox_cfg.tmpfs_mounts.extend(self.config.tmpfs_mounts.iter().cloned());
+
+        // Extra deny paths.
+        for path in &self.config.deny_paths {
+            sandbox_cfg.deny_paths.push(path.clone());
+        }
+
+        // Extra environment variables from config.
+        for (k, v) in &self.config.extra_env {
+            sandbox_cfg.env.insert(k.clone(), v.clone());
+        }
+
+        // Proxy environment variables.
         if let NetworkMode::Proxy(ref proxy_cfg) = sandbox_cfg.network {
             for (k, v) in proxy_cfg.sandbox_env() {
                 sandbox_cfg.env.insert(k, v);
             }
         }
 
+        // Secrets as environment variables.
         for (name, value) in secrets {
             sandbox_cfg.env.insert(name.clone(), value.expose().to_string());
         }
-
-        for path in &self.config.deny_paths {
-            sandbox_cfg.deny_paths.push(path.clone());
-        }
-
-        sandbox_cfg.seccomp = self.config.seccomp.clone();
 
         self.sandbox = Some(Sandbox::new(sandbox_cfg));
 
@@ -442,8 +467,15 @@ pub struct LaunchConfig {
     pub backend: BackendKind,
     pub sandbox_network: NetworkMode,
     pub sandbox_seccomp: SeccompPolicy,
+    pub sandbox_namespaces: NamespaceConfig,
     pub sandbox_deny_paths: Vec<PathBuf>,
+    pub sandbox_use_default_deny_paths: bool,
     pub sandbox_proxy_domains: Vec<String>,
+    pub sandbox_ro_binds: Vec<BindMount>,
+    pub sandbox_rw_binds: Vec<BindMount>,
+    pub sandbox_tmpfs_mounts: Vec<PathBuf>,
+    pub sandbox_use_default_tmpfs: bool,
+    pub sandbox_env: HashMap<String, String>,
 }
 
 impl LaunchConfig {
@@ -472,8 +504,15 @@ impl LaunchConfig {
             BackendKind::Bwrap => AnyBackend::Bwrap(BwrapProvider::new(BwrapConfig {
                 network: self.sandbox_network,
                 seccomp: self.sandbox_seccomp,
+                namespaces: self.sandbox_namespaces,
                 deny_paths: self.sandbox_deny_paths,
+                use_default_deny_paths: self.sandbox_use_default_deny_paths,
                 proxy_domains: self.sandbox_proxy_domains,
+                ro_binds: self.sandbox_ro_binds,
+                rw_binds: self.sandbox_rw_binds,
+                tmpfs_mounts: self.sandbox_tmpfs_mounts,
+                use_default_tmpfs: self.sandbox_use_default_tmpfs,
+                extra_env: self.sandbox_env,
             })),
             BackendKind::MicroVm => AnyBackend::MicroVm(MicroVmProvider::new(MicroVmBackendConfig {
                 flake: self.flake,

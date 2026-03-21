@@ -41,6 +41,43 @@ proxy_allow = [
 # (~/.ssh, ~/.gnupg, ~/.aws, ~/.docker, ~/.kube, etc.).
 # deny_paths = ["extra/sensitive/dir"]
 
+# Set to false to disable built-in default deny paths
+# (only your explicit deny_paths will apply).
+# use_default_deny_paths = true
+
+# ── Namespace isolation ───────────────────────────────────────────────
+# Network namespace is controlled by the `network` field above.
+# [sandbox.namespaces]
+# pid    = true     # isolate PID namespace (--unshare-pid)
+# ipc    = true     # isolate IPC namespace (--unshare-ipc)
+# uts    = false    # isolate UTS/hostname namespace (--unshare-uts)
+# user   = false    # isolate user namespace (--unshare-user)
+# cgroup = false    # isolate cgroup namespace (--unshare-cgroup)
+
+# ── Extra bind mounts ─────────────────────────────────────────────────
+# Read-only bind mounts (host path → sandbox path).
+# [[sandbox.ro_binds]]
+# src = "/opt/tools"
+# dst = "/opt/tools"
+
+# Read-write bind mounts (host path → sandbox path).
+# [[sandbox.rw_binds]]
+# src = "/tmp/shared"
+# dst = "/shared"
+
+# ── Tmpfs mounts ──────────────────────────────────────────────────────
+# Extra tmpfs mount points (in addition to default /tmp and /home).
+# tmpfs = ["/run", "/var/tmp"]
+
+# Set to false to disable default /tmp and /home tmpfs mounts.
+# use_default_tmpfs = true
+
+# ── Environment variables ─────────────────────────────────────────────
+# Extra environment variables injected into the sandbox.
+# [sandbox.env]
+# EDITOR = "nvim"
+# TERM = "xterm-256color"
+
 # ── Secrets ────────────────────────────────────────────────────────────
 # Injected as env vars into the sandbox.
 # Supported sources: op://…, sops:…, env:…, file:…

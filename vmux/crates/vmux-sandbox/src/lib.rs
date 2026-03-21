@@ -10,6 +10,6 @@ mod bwrap;
 mod proxy;
 mod seccomp;
 
-pub use bwrap::{BindMount, NetworkMode, Sandbox, SandboxConfig, SandboxError, SandboxState};
+pub use bwrap::{BindMount, NamespaceConfig, NetworkMode, Sandbox, SandboxConfig, SandboxError, SandboxState};
 pub use proxy::{ProxyConfig, ProxyDaemon};
 pub use seccomp::SeccompPolicy;
