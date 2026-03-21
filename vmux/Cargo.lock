@@ -698,14 +698,12 @@ dependencies = [
  "vmux-nix",
  "vmux-sandbox",
  "vmux-secrets",
- "vmux-wezterm",
 ]
 
 [[package]]
 name = "vmux-core"
 version = "0.1.0"
 dependencies = [
- "scopeguard",
  "serde",
  "thiserror",
  "tokio",
@@ -713,7 +711,6 @@ dependencies = [
  "vmux-nix",
  "vmux-sandbox",
  "vmux-secrets",
- "vmux-wezterm",
 ]
 
 [[package]]
@@ -749,18 +746,6 @@ dependencies = [
  "tokio",
  "tracing",
  "zeroize",
-]
-
-[[package]]
-name = "vmux-wezterm"
-version = "0.1.0"
-dependencies = [
- "dirs",
- "serde",
- "serde_json",
- "thiserror",
- "tokio",
- "tracing",
 ]
 
 [[package]]

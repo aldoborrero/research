@@ -3,7 +3,6 @@ resolver = "2"
 members = [
     "crates/vmux-cli",
     "crates/vmux-core",
-    "crates/vmux-wezterm",
     "crates/vmux-secrets",
     "crates/vmux-nix",
     "crates/vmux-sandbox",

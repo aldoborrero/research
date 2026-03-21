@@ -1,4 +1,5 @@
 use std::net::Ipv4Addr;
+use std::os::unix::process::CommandExt;
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -10,12 +11,12 @@ use tracing_subscriber::EnvFilter;
 use vmux_core::{AgentTool, Backend, Editor, LaunchConfig};
 use vmux_sandbox::{NetworkMode, SeccompPolicy};
 use vmux_secrets::SecretSpec;
-use vmux_wezterm::Layout;
 
-/// vmux — Agentic VM Launcher for NixOS
+/// vmux — sandboxed agent launcher
 ///
-/// Orchestrates WezTerm, microvm.nix, and agentic tools (Claude Code, etc.)
-/// into sandboxed development environments with secret injection.
+/// Run agentic tools (Claude Code, Aider, Codex) and editors inside
+/// isolated bubblewrap sandboxes or microvm.nix VMs with automatic
+/// secret injection.
 #[derive(Parser, Debug)]
 #[command(name = "vmux", version, about)]
 struct Cli {
@@ -25,37 +26,32 @@ struct Cli {
 
 #[derive(Subcommand, Debug)]
 enum Commands {
-    /// Launch a new vmux session (start VM, inject secrets, open WezTerm).
-    Launch(LaunchArgs),
+    /// Run a command inside the sandbox/VM.
+    ///
+    /// Resolves secrets, prepares the environment, and exec's the command.
+    /// Defaults to $SHELL if no command, --tool, or --editor is given.
+    Run(RunArgs),
+
+    /// Print resolved configuration as JSON (without launching).
+    Config(ConfigArgs),
+
     /// List running vmux-managed VMs.
     List,
+
     /// Stop a named VM.
     Stop {
         /// VM name to stop.
         name: String,
     },
-    /// Re-attach WezTerm layout to a running VM.
-    Attach {
-        /// VM name to attach to.
-        name: String,
-
-        /// WezTerm layout (used if panes need to be rebuilt).
-        #[arg(long, default_value = "editor-agent")]
-        layout: String,
-
-        /// Path to vmux.toml config file (default: auto-detect).
-        #[arg(long, short = 'c')]
-        config: Option<PathBuf>,
-    },
 }
 
 #[derive(Parser, Debug)]
-struct LaunchArgs {
-    /// VM name (matches microvm.nix declaration).
+struct RunArgs {
+    /// Session name (matches VM declaration or sandbox label).
     #[arg(long)]
     name: Option<String>,
 
-    /// Host directory to mount as /workspace in VM.
+    /// Host directory to mount as /workspace.
     #[arg(long, default_value = ".")]
     workspace: PathBuf,
 
@@ -64,33 +60,36 @@ struct LaunchArgs {
     #[arg(long = "secret", value_name = "KEY=SOURCE")]
     secrets: Vec<String>,
 
-    /// Agentic tool to provision: claude, aider, codex.
+    /// Agentic tool to run: claude, aider, codex.
     #[arg(long)]
     tool: Option<String>,
 
-    /// Editor binary inside VM: nvim, hx, emacs.
+    /// Editor to run: nvim, hx, emacs.
     #[arg(long)]
     editor: Option<String>,
-
-    /// WezTerm layout: editor-agent, agent-only, editor-only, full.
-    #[arg(long, default_value = "editor-agent")]
-    layout: String,
-
-    /// Don't open WezTerm; just print SSH info.
-    #[arg(long)]
-    no_wezterm: bool,
 
     /// Destroy VM state on exit (default: true).
     #[arg(long, default_value_t = true)]
     ephemeral: bool,
 
-    /// Attach to existing VM with same name if running.
-    #[arg(long)]
-    reuse: bool,
+    /// Path to vmux.toml config file (default: auto-detect).
+    #[arg(long, short = 'c')]
+    config: Option<PathBuf>,
 
-    /// Print resolved config as JSON and exit (don't launch).
+    /// Command to run inside the environment (overrides --tool/--editor).
+    #[arg(last = true)]
+    command: Vec<String>,
+}
+
+#[derive(Parser, Debug)]
+struct ConfigArgs {
+    /// Session name.
     #[arg(long)]
-    dry_run: bool,
+    name: Option<String>,
+
+    /// Host directory to mount as /workspace.
+    #[arg(long, default_value = ".")]
+    workspace: PathBuf,
 
     /// Path to vmux.toml config file (default: auto-detect).
     #[arg(long, short = 'c')]
@@ -108,8 +107,6 @@ struct ProjectConfig {
     workspace: Option<WorkspaceConfig>,
     #[serde(default)]
     tools: Option<ToolsConfig>,
-    #[serde(default)]
-    layout: Option<LayoutConfig>,
     #[serde(default)]
     sandbox: Option<SandboxSection>,
     #[serde(default)]
@@ -145,31 +142,29 @@ struct ToolsConfig {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-struct LayoutConfig {
-    #[serde(rename = "type")]
-    layout_type: Option<String>,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
 struct SecretEntry {
     name: String,
     source: String,
 }
 
-/// Resolved configuration for JSON output in dry-run mode.
+/// Resolved configuration for JSON output.
 #[derive(Debug, Serialize)]
 struct ResolvedConfig {
     name: String,
-    flake: String,
-    ip: String,
+    backend: String,
     workspace: String,
     workspace_mount: String,
-    tool: Option<String>,
-    editor: Option<String>,
-    layout: String,
-    use_wezterm: bool,
+    command: String,
     ephemeral: bool,
     secrets: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    flake: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    ip: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    sandbox_network: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    sandbox_seccomp: Option<String>,
 }
 
 fn find_config_file(explicit: Option<&PathBuf>) -> Option<PathBuf> {
@@ -180,7 +175,6 @@ fn find_config_file(explicit: Option<&PathBuf>) -> Option<PathBuf> {
         return None;
     }
 
-    // Walk up from cwd looking for vmux.toml.
     let mut dir = std::env::current_dir().ok()?;
     loop {
         let candidate = dir.join("vmux.toml");
@@ -216,81 +210,63 @@ fn load_project_config(path: Option<&PathBuf>) -> ProjectConfig {
     }
 }
 
-fn merge_config(args: &LaunchArgs, project: &ProjectConfig) -> Result<LaunchConfig> {
+fn build_launch_config(
+    name: Option<String>,
+    workspace: PathBuf,
+    secrets_raw: &[String],
+    tool: Option<&str>,
+    editor: Option<&str>,
+    ephemeral: bool,
+    config_path: Option<&PathBuf>,
+) -> Result<LaunchConfig> {
+    let project = load_project_config(config_path);
     let vm = project.vm.as_ref();
     let ws = project.workspace.as_ref();
     let tools = project.tools.as_ref();
 
-    // VM name: CLI > vmux.toml > error.
-    let name = args
-        .name
-        .clone()
+    let name = name
         .or_else(|| vm.and_then(|v| v.name.clone()))
-        .context("VM name is required (--name or vm.name in vmux.toml)")?;
+        .context("session name is required (--name or vm.name in vmux.toml)")?;
 
-    // Flake path: vmux.toml only (no CLI flag for now).
     let flake = vm
         .and_then(|v| v.flake.clone())
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("."));
 
-    // IP: vmux.toml only.
     let ip: Ipv4Addr = vm
         .and_then(|v| v.ip.clone())
         .unwrap_or_else(|| "192.168.83.10".to_string())
         .parse()
         .context("invalid IP address in config")?;
 
-    // Workspace: CLI > vmux.toml.
-    let workspace = if args.workspace != PathBuf::from(".") {
-        args.workspace.clone()
+    let workspace = if workspace != PathBuf::from(".") {
+        workspace
     } else {
         ws.and_then(|w| w.host_path.as_ref())
             .map(PathBuf::from)
             .unwrap_or_else(|| PathBuf::from("."))
     };
-    let workspace = std::fs::canonicalize(&workspace)
-        .unwrap_or(workspace);
+    let workspace = std::fs::canonicalize(&workspace).unwrap_or(workspace);
 
     let workspace_mount = ws
         .and_then(|w| w.vm_mount.as_ref())
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("/workspace"));
 
-    // Tool: CLI > vmux.toml.
-    let tool = args
-        .tool
-        .as_deref()
+    let tool_parsed = tool
         .or_else(|| tools.and_then(|t| t.agent.as_deref()))
         .map(AgentTool::from_str);
 
-    // Editor: CLI > vmux.toml.
-    let editor = args
-        .editor
-        .as_deref()
+    let editor_parsed = editor
         .or_else(|| tools.and_then(|t| t.editor.as_deref()))
         .map(Editor::from_str);
 
-    // Layout: CLI > vmux.toml.
-    let layout_str = if args.layout != "editor-agent" {
-        args.layout.as_str()
-    } else {
-        project
-            .layout
-            .as_ref()
-            .and_then(|l| l.layout_type.as_deref())
-            .unwrap_or("editor-agent")
-    };
-    let layout = Layout::from_str_loose(layout_str)
-        .context(format!("unknown layout: {}", layout_str))?;
-
     // Secrets: CLI + vmux.toml (merged).
     let mut secrets = Vec::new();
-    for s in &args.secrets {
+    for s in secrets_raw {
         secrets.push(SecretSpec::parse_cli(s).context(format!("invalid secret: {}", s))?);
     }
     for entry in &project.secrets {
-        // Only add from config if not already specified on CLI.
         if !secrets.iter().any(|s| s.name == entry.name) {
             let source = vmux_secrets::SecretSource::parse(&entry.source)
                 .context(format!("invalid secret source in config: {}", entry.source))?;
@@ -301,7 +277,6 @@ fn merge_config(args: &LaunchArgs, project: &ProjectConfig) -> Result<LaunchConf
         }
     }
 
-    // Determine backend from config.
     let backend = project
         .backend
         .as_deref()
@@ -311,7 +286,6 @@ fn merge_config(args: &LaunchArgs, project: &ProjectConfig) -> Result<LaunchConf
         })
         .unwrap_or(Backend::Bwrap);
 
-    // Sandbox settings from config.
     let sandbox_section = project.sandbox.as_ref();
     let sandbox_network = sandbox_section
         .and_then(|s| s.network.as_deref())
@@ -355,11 +329,9 @@ fn merge_config(args: &LaunchArgs, project: &ProjectConfig) -> Result<LaunchConf
         workspace,
         workspace_mount,
         secrets,
-        tool,
-        editor,
-        layout,
-        use_wezterm: !args.no_wezterm,
-        ephemeral: args.ephemeral,
+        tool: tool_parsed,
+        editor: editor_parsed,
+        ephemeral,
         ssh_timeout: Duration::from_secs(30),
         backend,
         sandbox_network,
@@ -380,34 +352,92 @@ async fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
-        Commands::Launch(args) => {
-            let project = load_project_config(args.config.as_ref());
-            let config = merge_config(&args, &project)?;
+        Commands::Run(args) => {
+            let config = build_launch_config(
+                args.name,
+                args.workspace,
+                &args.secrets,
+                args.tool.as_deref(),
+                args.editor.as_deref(),
+                args.ephemeral,
+                args.config.as_ref(),
+            )?;
 
-            if args.dry_run {
-                let resolved = ResolvedConfig {
-                    name: config.name.clone(),
-                    flake: config.flake.display().to_string(),
-                    ip: config.ip.to_string(),
-                    workspace: config.workspace.display().to_string(),
-                    workspace_mount: config.workspace_mount.display().to_string(),
-                    tool: config.tool.as_ref().map(|t| t.launch_command().to_string()),
-                    editor: config.editor.as_ref().map(|e| e.command().to_string()),
-                    layout: format!("{:?}", config.layout),
-                    use_wezterm: config.use_wezterm,
-                    ephemeral: config.ephemeral,
-                    secrets: config
-                        .secrets
-                        .iter()
-                        .map(|s| s.name.clone())
-                        .collect(),
-                };
-                println!("{}", serde_json::to_string_pretty(&resolved)?);
-                return Ok(());
-            }
+            // Determine the command to run.
+            let command = if !args.command.is_empty() {
+                args.command.join(" ")
+            } else {
+                config.command()
+            };
 
-            vmux_core::launch(config).await?;
+            let (common, mut backend) = config.into_parts();
+
+            // Resolve secrets and prepare backend.
+            vmux_core::prepare_exec(&common, &mut backend).await?;
+
+            // Build exec argv.
+            let (program, argv) = backend.exec_argv(&command)?;
+
+            tracing::info!(
+                program = %program,
+                "exec into environment"
+            );
+
+            // Replace this process with the sandboxed command.
+            let err = std::process::Command::new(&program)
+                .args(&argv)
+                .exec();
+
+            // exec() only returns on error.
+            anyhow::bail!("exec failed: {}", err);
         }
+
+        Commands::Config(args) => {
+            let config = build_launch_config(
+                args.name,
+                args.workspace,
+                &[],
+                None,
+                None,
+                true,
+                args.config.as_ref(),
+            )?;
+
+            let resolved = ResolvedConfig {
+                name: config.name.clone(),
+                backend: match config.backend {
+                    Backend::Bwrap => "bwrap".to_string(),
+                    Backend::MicroVm => "microvm".to_string(),
+                },
+                workspace: config.workspace.display().to_string(),
+                workspace_mount: config.workspace_mount.display().to_string(),
+                command: config.command(),
+                ephemeral: config.ephemeral,
+                secrets: config.secrets.iter().map(|s| s.name.clone()).collect(),
+                flake: if config.backend == Backend::MicroVm {
+                    Some(config.flake.display().to_string())
+                } else {
+                    None
+                },
+                ip: if config.backend == Backend::MicroVm {
+                    Some(config.ip.to_string())
+                } else {
+                    None
+                },
+                sandbox_network: if config.backend == Backend::Bwrap {
+                    Some(format!("{:?}", config.sandbox_network))
+                } else {
+                    None
+                },
+                sandbox_seccomp: if config.backend == Backend::Bwrap {
+                    Some(format!("{:?}", config.sandbox_seccomp))
+                } else {
+                    None
+                },
+            };
+            println!("{}", serde_json::to_string_pretty(&resolved)?);
+        }
+
         Commands::List => {
             let vms = vmux_nix::list_running_vms().await?;
             if vms.is_empty() {
@@ -419,6 +449,7 @@ async fn main() -> Result<()> {
                 }
             }
         }
+
         Commands::Stop { name } => {
             tracing::info!(name = %name, "stopping VM");
             let mut vm = vmux_nix::MicroVm::from_config(vmux_nix::MicroVmConfig {
@@ -430,76 +461,6 @@ async fn main() -> Result<()> {
             });
             vm.stop().await?;
             println!("VM '{}' stopped.", name);
-        }
-        Commands::Attach { name, layout, config: config_path } => {
-            let project = load_project_config(config_path.as_ref());
-            let vm_conf = project.vm.as_ref();
-            let ws = project.workspace.as_ref();
-            let tools = project.tools.as_ref();
-
-            let flake = vm_conf
-                .and_then(|v| v.flake.clone())
-                .map(PathBuf::from)
-                .unwrap_or_else(|| PathBuf::from("."));
-
-            let ip: Ipv4Addr = vm_conf
-                .and_then(|v| v.ip.clone())
-                .unwrap_or_else(|| "192.168.83.10".to_string())
-                .parse()
-                .context("invalid IP address in config")?;
-
-            let workspace = ws
-                .and_then(|w| w.host_path.as_ref())
-                .map(PathBuf::from)
-                .unwrap_or_else(|| PathBuf::from("."));
-            let workspace = std::fs::canonicalize(&workspace).unwrap_or(workspace);
-
-            let workspace_mount = ws
-                .and_then(|w| w.vm_mount.as_ref())
-                .map(PathBuf::from)
-                .unwrap_or_else(|| PathBuf::from("/workspace"));
-
-            let tool = tools
-                .and_then(|t| t.agent.as_deref())
-                .map(AgentTool::from_str);
-
-            let editor = tools
-                .and_then(|t| t.editor.as_deref())
-                .map(Editor::from_str);
-
-            let layout_str = if layout != "editor-agent" {
-                layout.as_str()
-            } else {
-                project
-                    .layout
-                    .as_ref()
-                    .and_then(|l| l.layout_type.as_deref())
-                    .unwrap_or("editor-agent")
-            };
-            let parsed_layout = Layout::from_str_loose(layout_str)
-                .context(format!("unknown layout: {}", layout_str))?;
-
-            let config = LaunchConfig {
-                name,
-                flake,
-                ip,
-                workspace,
-                workspace_mount,
-                secrets: Vec::new(),
-                tool,
-                editor,
-                layout: parsed_layout,
-                use_wezterm: true,
-                ephemeral: false,
-                ssh_timeout: Duration::from_secs(30),
-                backend: Backend::MicroVm,
-                sandbox_network: NetworkMode::None,
-                sandbox_seccomp: SeccompPolicy::Default,
-                sandbox_deny_paths: Vec::new(),
-                sandbox_proxy_domains: Vec::new(),
-            };
-
-            vmux_core::attach(config).await?;
         }
     }
 

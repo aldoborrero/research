@@ -12,7 +12,6 @@ path = "src/main.rs"
 
 [dependencies]
 vmux-core = { path = "../vmux-core" }
-vmux-wezterm = { path = "../vmux-wezterm" }
 vmux-secrets = { path = "../vmux-secrets" }
 vmux-nix = { path = "../vmux-nix" }
 vmux-sandbox = { path = "../vmux-sandbox" }

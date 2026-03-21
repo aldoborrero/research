@@ -365,14 +365,18 @@ impl Sandbox {
         self.wait().await
     }
 
-    /// Build a command string suitable for a WezTerm pane.
+    /// Build a command string suitable for a terminal.
     ///
-    /// Returns the full `bwrap ...` command as a single string that can
-    /// be sent to a terminal pane.
+    /// Returns the full `bwrap ...` command as a single string.
     pub fn command_string(&self, command: &[String]) -> Result<String, SandboxError> {
         let bwrap = which_bwrap()?;
         let args = self.build_args(command);
         Ok(format!("{} {}", bwrap, shell_join(&args)))
+    }
+
+    /// Return the path to the bwrap binary.
+    pub fn bwrap_path(&self) -> Result<String, SandboxError> {
+        which_bwrap()
     }
 }
 

@@ -8,7 +8,6 @@ use vmux_sandbox::{
     NetworkMode, Sandbox, SandboxConfig, SandboxError, SeccompPolicy,
 };
 use vmux_secrets::{SecretError, SecretResolver, SecretSpec, SecretValue};
-use vmux_wezterm::{Layout, PaneRole, SessionState, WezTermError, WezTermSession};
 
 /// Errors from the vmux launch orchestration.
 #[derive(Debug, Error)]
@@ -19,9 +18,6 @@ pub enum LaunchError {
     #[error("secret resolution error: {0}")]
     Secret(#[from] SecretError),
 
-    #[error("WezTerm error: {0}")]
-    WezTerm(#[from] WezTermError),
-
     #[error("sandbox error: {0}")]
     Sandbox(#[from] SandboxError),
 
@@ -30,6 +26,9 @@ pub enum LaunchError {
 
     #[error("configuration error: {0}")]
     Config(String),
+
+    #[error("exec failed: {0}")]
+    Exec(String),
 }
 
 // ---------------------------------------------------------------------------
@@ -49,20 +48,17 @@ pub trait BackendProvider: Send + Sync {
         secrets: &[(String, SecretValue)],
     ) -> impl std::future::Future<Output = Result<(), LaunchError>> + Send;
 
-    /// Wrap a shell command so it executes inside the environment.
+    /// Build the full argv to exec into the environment.
     ///
-    /// For bwrap this prepends `bwrap <args> --`, for microvm it prepends
-    /// `ssh <host>`. The returned string is suitable for sending to a
-    /// WezTerm pane.
-    fn wrap_command(&self, command: &str) -> Result<String, LaunchError>;
+    /// Returns `(program, args)` suitable for `exec()`. For bwrap this is
+    /// `("bwrap", [...bwrap args..., "--", "sh", "-c", command])`, for
+    /// microvm it's `("ssh", ["-t", "root@ip", command])`.
+    fn exec_argv(&self, command: &str) -> Result<(String, Vec<String>), LaunchError>;
 
     /// Optional teardown (e.g. stop ephemeral VM).
     fn cleanup(&mut self) -> impl std::future::Future<Output = Result<(), LaunchError>> + Send {
         async { Ok(()) }
     }
-
-    /// Human-readable info printed when WezTerm is not used.
-    fn status_info(&self, common: &CommonConfig, secret_count: usize) -> String;
 }
 
 // ---------------------------------------------------------------------------
@@ -97,7 +93,7 @@ impl AgentTool {
         }
     }
 
-    /// The command to launch this agent tool inside the VM.
+    /// The command to launch this agent tool.
     pub fn launch_command(&self) -> &str {
         match self {
             AgentTool::Claude => "claude",
@@ -108,7 +104,7 @@ impl AgentTool {
     }
 }
 
-/// Editor choice for the VM.
+/// Editor choice.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Editor {
     Nvim,
@@ -148,14 +144,6 @@ pub struct CommonConfig {
     pub workspace_mount: PathBuf,
     /// Secrets to inject.
     pub secrets: Vec<SecretSpec>,
-    /// Agentic tool to provision.
-    pub tool: Option<AgentTool>,
-    /// Editor to use inside the environment.
-    pub editor: Option<Editor>,
-    /// WezTerm layout.
-    pub layout: Layout,
-    /// Whether to open WezTerm (false = just print info).
-    pub use_wezterm: bool,
     /// Whether to destroy state on exit.
     pub ephemeral: bool,
 }
@@ -167,13 +155,9 @@ pub struct CommonConfig {
 /// Bwrap-specific configuration.
 #[derive(Debug)]
 pub struct BwrapConfig {
-    /// Network isolation mode.
     pub network: NetworkMode,
-    /// Seccomp policy.
     pub seccomp: SeccompPolicy,
-    /// Extra paths to deny read access.
     pub deny_paths: Vec<PathBuf>,
-    /// Allowed proxy domains (when using Proxy network mode).
     pub proxy_domains: Vec<String>,
 }
 
@@ -235,29 +219,11 @@ impl BackendProvider for BwrapProvider {
         Ok(())
     }
 
-    fn wrap_command(&self, command: &str) -> Result<String, LaunchError> {
+    fn exec_argv(&self, command: &str) -> Result<(String, Vec<String>), LaunchError> {
         let sandbox = self.sandbox()?;
-        let cmd = sandbox.command_string(&[command.into()])?;
-        Ok(cmd)
-    }
-
-    fn status_info(&self, common: &CommonConfig, secret_count: usize) -> String {
-        let tool = common
-            .tool
-            .as_ref()
-            .map(|t| t.launch_command())
-            .unwrap_or("bash");
-        let sandbox = self.sandbox.as_ref().unwrap();
-        let cmd = sandbox
-            .command_string(&[tool.into()])
-            .unwrap_or_else(|_| "<error>".into());
-        format!(
-            "Sandbox command:\n  {}\n\nWorkspace: {} -> /workspace\nNetwork: {:?}\nSecrets injected: {}",
-            cmd,
-            common.workspace.display(),
-            self.config.network,
-            secret_count,
-        )
+        let args = sandbox.build_args(&[command.into()]);
+        let bwrap = sandbox.bwrap_path()?;
+        Ok((bwrap, args))
     }
 }
 
@@ -268,11 +234,8 @@ impl BackendProvider for BwrapProvider {
 /// MicroVm-specific configuration.
 #[derive(Debug)]
 pub struct MicroVmBackendConfig {
-    /// Path to the NixOS flake containing the microvm declaration.
     pub flake: PathBuf,
-    /// Static IP of the VM.
     pub ip: std::net::Ipv4Addr,
-    /// SSH readiness timeout.
     pub ssh_timeout: Duration,
 }
 
@@ -321,13 +284,21 @@ impl BackendProvider for MicroVmProvider {
         Ok(())
     }
 
-    fn wrap_command(&self, command: &str) -> Result<String, LaunchError> {
+    fn exec_argv(&self, command: &str) -> Result<(String, Vec<String>), LaunchError> {
         let vm = self.vm()?;
-        Ok(format!(
-            "ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -t {} 'source /dev/shm/vmux-secrets.env 2>/dev/null; cd {} && {}'",
-            vm.ssh_host(),
-            "/workspace",
+        let shell_cmd = format!(
+            "source /dev/shm/vmux-secrets.env 2>/dev/null; cd /workspace && exec {}",
             command,
+        );
+        Ok((
+            "ssh".into(),
+            vec![
+                "-o".into(), "StrictHostKeyChecking=no".into(),
+                "-o".into(), "UserKnownHostsFile=/dev/null".into(),
+                "-t".into(),
+                vm.ssh_host(),
+                shell_cmd,
+            ],
         ))
     }
 
@@ -339,19 +310,6 @@ impl BackendProvider for MicroVmProvider {
                 .status();
         }
         Ok(())
-    }
-
-    fn status_info(&self, common: &CommonConfig, secret_count: usize) -> String {
-        let vm = self.vm.as_ref().unwrap();
-        format!(
-            "VM '{}' is running.\nSSH: ssh -o StrictHostKeyChecking=no {}\nSecrets injected: {}\nWorkspace: {} -> {}\n\nUse `vmux stop {}` to shut down the VM.",
-            common.name,
-            vm.ssh_host(),
-            secret_count,
-            common.workspace.display(),
-            common.workspace_mount.display(),
-            common.name,
-        )
     }
 }
 
@@ -412,10 +370,10 @@ impl AnyBackend {
         }
     }
 
-    pub fn wrap_command(&self, command: &str) -> Result<String, LaunchError> {
+    pub fn exec_argv(&self, command: &str) -> Result<(String, Vec<String>), LaunchError> {
         match self {
-            AnyBackend::Bwrap(b) => b.wrap_command(command),
-            AnyBackend::MicroVm(b) => b.wrap_command(command),
+            AnyBackend::Bwrap(b) => b.exec_argv(command),
+            AnyBackend::MicroVm(b) => b.exec_argv(command),
         }
     }
 
@@ -425,95 +383,50 @@ impl AnyBackend {
             AnyBackend::MicroVm(b) => b.cleanup().await,
         }
     }
-
-    pub fn status_info(&self, common: &CommonConfig, secret_count: usize) -> String {
-        match self {
-            AnyBackend::Bwrap(b) => b.status_info(common, secret_count),
-            AnyBackend::MicroVm(b) => b.status_info(common, secret_count),
-        }
-    }
 }
 
 // ---------------------------------------------------------------------------
-// Unified launch orchestration
+// Launch orchestration
 // ---------------------------------------------------------------------------
 
-/// Send commands to WezTerm panes using the backend to wrap commands.
-async fn send_pane_commands(
-    session: &WezTermSession,
+/// Resolve secrets, prepare the backend, and return the argv to exec.
+///
+/// The caller is responsible for actually calling `exec()` with the
+/// returned `(program, args)`. This separation keeps the core testable
+/// and lets the CLI handle the Unix exec.
+pub async fn prepare_exec(
     common: &CommonConfig,
-    backend: &AnyBackend,
-) -> Result<(), LaunchError> {
-    if session.panes.contains_key(&PaneRole::Editor) {
-        let editor = common
-            .editor
-            .as_ref()
-            .map(|e| e.command())
-            .unwrap_or("nvim");
-        let cmd = backend.wrap_command(editor)?;
-        session.send_command(PaneRole::Editor, &cmd).await?;
-    }
-    if session.panes.contains_key(&PaneRole::Agent) {
-        let tool = common
-            .tool
-            .as_ref()
-            .map(|t| t.launch_command())
-            .unwrap_or("bash");
-        let cmd = backend.wrap_command(tool)?;
-        session.send_command(PaneRole::Agent, &cmd).await?;
-    }
-    if session.panes.contains_key(&PaneRole::Logs) {
-        let cmd = backend.wrap_command("journalctl -f").unwrap_or_else(|_| {
-            "echo 'No log viewer available for this backend'".to_string()
-        });
-        session.send_command(PaneRole::Logs, &cmd).await?;
-    }
-    Ok(())
-}
-
-/// Run the full vmux launch sequence with any backend.
-pub async fn launch_with_backend(
-    common: CommonConfig,
-    mut backend: AnyBackend,
+    backend: &mut AnyBackend,
 ) -> Result<(), LaunchError> {
     // Step 1: Resolve secrets.
     let resolver = SecretResolver::new();
     let secrets = resolver.resolve_all(&common.secrets).await?;
     tracing::info!(count = secrets.len(), "secrets resolved");
 
-    // Step 2: Prepare the backend (start VM, build sandbox, etc.).
-    backend.prepare(&common, &secrets).await?;
-
-    // Step 3: Open WezTerm or print info.
-    if common.use_wezterm {
-        let session = WezTermSession::open(common.layout).await?;
-        session.save_state(&common.name)?;
-
-        send_pane_commands(&session, &common, &backend).await?;
-
-        tracing::info!("WezTerm session opened, waiting for close...");
-        session.wait_for_close().await?;
-        SessionState::remove(&common.name);
-    } else {
-        println!("{}", backend.status_info(&common, secrets.len()));
-    }
-
-    // Step 4: Cleanup if ephemeral.
-    if common.ephemeral {
-        backend.cleanup().await?;
-    }
+    // Step 2: Prepare the backend.
+    backend.prepare(common, &secrets).await?;
 
     Ok(())
 }
 
+/// Convenience: resolve secrets + prepare + build exec argv.
+pub async fn resolve_and_build_argv(
+    common: &CommonConfig,
+    backend: &mut AnyBackend,
+    command: &str,
+) -> Result<(String, Vec<String>), LaunchError> {
+    prepare_exec(common, backend).await?;
+    backend.exec_argv(command)
+}
+
 // ---------------------------------------------------------------------------
-// Legacy flat config (preserved for CLI compatibility)
+// Legacy flat config (preserved for CLI ergonomics)
 // ---------------------------------------------------------------------------
 
 /// Full launch configuration (assembled from CLI args + vmux.toml).
 ///
-/// This flat struct is kept for CLI ergonomics. [`launch`] converts it
-/// into [`CommonConfig`] + the appropriate backend.
+/// This flat struct is kept for CLI ergonomics. Use [`into_parts`] to
+/// split into [`CommonConfig`] + [`AnyBackend`].
 #[derive(Debug)]
 pub struct LaunchConfig {
     pub name: String,
@@ -524,8 +437,6 @@ pub struct LaunchConfig {
     pub secrets: Vec<SecretSpec>,
     pub tool: Option<AgentTool>,
     pub editor: Option<Editor>,
-    pub layout: Layout,
-    pub use_wezterm: bool,
     pub ephemeral: bool,
     pub ssh_timeout: Duration,
     pub backend: BackendKind,
@@ -536,6 +447,17 @@ pub struct LaunchConfig {
 }
 
 impl LaunchConfig {
+    /// The command to run inside the environment.
+    pub fn command(&self) -> String {
+        if let Some(ref tool) = self.tool {
+            return tool.launch_command().to_string();
+        }
+        if let Some(ref editor) = self.editor {
+            return editor.command().to_string();
+        }
+        std::env::var("SHELL").unwrap_or_else(|_| "bash".to_string())
+    }
+
     /// Split into common config + backend.
     pub fn into_parts(self) -> (CommonConfig, AnyBackend) {
         let common = CommonConfig {
@@ -543,10 +465,6 @@ impl LaunchConfig {
             workspace: self.workspace,
             workspace_mount: self.workspace_mount,
             secrets: self.secrets,
-            tool: self.tool,
-            editor: self.editor,
-            layout: self.layout,
-            use_wezterm: self.use_wezterm,
             ephemeral: self.ephemeral,
         };
 
@@ -566,56 +484,6 @@ impl LaunchConfig {
 
         (common, backend)
     }
-}
-
-/// Run the full vmux launch sequence (legacy entry point).
-pub async fn launch(config: LaunchConfig) -> Result<(), LaunchError> {
-    let (common, backend) = config.into_parts();
-    launch_with_backend(common, backend).await
-}
-
-/// Re-attach to a running VM's WezTerm session.
-pub async fn attach(config: LaunchConfig) -> Result<(), LaunchError> {
-    // Attach only works with MicroVm for now.
-    let vm = MicroVm::from_config(MicroVmConfig {
-        name: config.name.clone(),
-        flake: config.flake.clone(),
-        ip: config.ip,
-        workspace_host: config.workspace.clone(),
-        workspace_vm: config.workspace_mount.clone(),
-    });
-
-    let running = vm.is_running().await.unwrap_or(false);
-    if !running {
-        return Err(LaunchError::Config(format!(
-            "VM '{}' is not running. Use `vmux launch` to start it.",
-            config.name
-        )));
-    }
-
-    let (common, backend) = config.into_parts();
-
-    let session = match WezTermSession::restore(&common.name).await {
-        Ok(session) => {
-            tracing::info!(
-                panes = session.panes.len(),
-                "re-attached to existing WezTerm panes"
-            );
-            session
-        }
-        Err(_) => {
-            tracing::info!("no live panes found, rebuilding WezTerm layout");
-            let session =
-                WezTermSession::rebuild_layout(&common.name, common.layout).await?;
-            send_pane_commands(&session, &common, &backend).await?;
-            session
-        }
-    };
-
-    session.wait_for_close().await?;
-    SessionState::remove(&common.name);
-
-    Ok(())
 }
 
 // Re-export BackendKind as Backend for CLI compatibility.
