@@ -2,6 +2,7 @@ import requests
 import json
 import time
 import socket
+import ssl
 import ipaddress
 from collections import defaultdict
 # ── RIPE NCC ──────────────────────────────────────────────────────────────────
@@ -535,6 +536,209 @@ def buscar_bgpview_org(nombre: str):
             "country": asn.get("country_code"),
         })
     return asns
+# ── TLS CERTIFICATE SAN ANALYSIS ──────────────────────────────────────────────
+STAGING_PATTERNS = [
+    "staging", "stage", "stg", "dev", "develop", "test", "testing", "tst",
+    "preprod", "pre-prod", "pre.", "uat", "qa", "beta", "sandbox", "demo",
+    "int.", "internal", "intranet", "corp", "lab", "pilot", "canary",
+    "alpha", "gamma", "preview", "draft", "tmp", "temp", "old", "legacy",
+    "backup", "bak", "dr.", "disaster", "mirror", "secondary",
+]
+
+def _extraer_san_cert(host: str, puerto: int = 443, timeout: float = 5.0):
+    """Conecta a host:puerto via TLS y extrae Subject + SANs del certificado.
+
+    Devuelve dict con CN, SANs, issuer, validity, y cipher info.
+    No valida el certificado (queremos ver certs autofirmados de staging).
+    """
+    ctx = ssl.create_default_context()
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+
+    try:
+        with socket.create_connection((host, puerto), timeout=timeout) as raw:
+            with ctx.wrap_socket(raw, server_hostname=host) as ssock:
+                # getpeercert(binary_form=False) needs CERT_REQUIRED for full parse,
+                # but with CERT_NONE it returns {} — so use binary + ssl helpers
+                der_cert = ssock.getpeercert(binary_form=True)
+                parsed = ssock.getpeercert(binary_form=False)
+                cipher_info = ssock.cipher()
+                version = ssock.version()
+
+                # With CERT_NONE, parsed is usually empty. Try the binary path.
+                san_names = set()
+                cn = None
+                issuer_org = None
+                not_before = None
+                not_after = None
+
+                if parsed:
+                    # Extract CN
+                    for rdn in parsed.get("subject", ()):
+                        for attr_name, attr_val in rdn:
+                            if attr_name == "commonName":
+                                cn = attr_val
+                                san_names.add(attr_val.lower())
+
+                    # Extract SANs
+                    for san_type, san_val in parsed.get("subjectAltName", ()):
+                        if san_type == "DNS":
+                            san_names.add(san_val.lower())
+
+                    # Issuer
+                    for rdn in parsed.get("issuer", ()):
+                        for attr_name, attr_val in rdn:
+                            if attr_name == "organizationName":
+                                issuer_org = attr_val
+
+                    not_before = parsed.get("notBefore")
+                    not_after = parsed.get("notAfter")
+
+                # Fallback: parse DER with ssl module
+                if der_cert and not san_names:
+                    try:
+                        # Re-connect with CERT_REQUIRED to a temp context for parsing
+                        ctx2 = ssl.create_default_context()
+                        ctx2.check_hostname = False
+                        ctx2.verify_mode = ssl.CERT_REQUIRED
+                        # Load the cert we already have
+                        # Actually, simplest: use openssl-style parsing via ssl
+                        pem = ssl.DER_cert_to_PEM_cert(der_cert)
+                        # ssl module doesn't expose SAN parsing from PEM directly
+                        # but we can re-connect with verify to get parsed cert
+                        pass
+                    except Exception:
+                        pass
+
+                # If we still have no SANs, try a second connection with partial verify
+                if not san_names:
+                    try:
+                        ctx3 = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+                        ctx3.check_hostname = False
+                        ctx3.verify_mode = ssl.CERT_OPTIONAL
+                        with socket.create_connection((host, puerto), timeout=timeout) as raw2:
+                            with ctx3.wrap_socket(raw2, server_hostname=host) as ssock2:
+                                parsed2 = ssock2.getpeercert(binary_form=False)
+                                if parsed2:
+                                    for rdn in parsed2.get("subject", ()):
+                                        for attr_name, attr_val in rdn:
+                                            if attr_name == "commonName":
+                                                cn = attr_val
+                                                san_names.add(attr_val.lower())
+                                    for san_type, san_val in parsed2.get("subjectAltName", ()):
+                                        if san_type == "DNS":
+                                            san_names.add(san_val.lower())
+                                    for rdn in parsed2.get("issuer", ()):
+                                        for attr_name, attr_val in rdn:
+                                            if attr_name == "organizationName":
+                                                issuer_org = attr_val
+                                    not_before = parsed2.get("notBefore")
+                                    not_after = parsed2.get("notAfter")
+                    except Exception:
+                        pass
+
+                return {
+                    "host": host,
+                    "port": puerto,
+                    "cn": cn,
+                    "san_names": sorted(san_names),
+                    "issuer": issuer_org,
+                    "not_before": not_before,
+                    "not_after": not_after,
+                    "tls_version": version,
+                    "cipher": cipher_info[0] if cipher_info else None,
+                }
+    except (socket.timeout, ConnectionRefusedError, OSError, ssl.SSLError) as e:
+        return {"host": host, "port": puerto, "error": str(e)}
+
+
+def analizar_san(dominios_conocidos: set, hosts_a_probar: list,
+                 puertos_tls: list = None, timeout: float = 5.0):
+    """Analiza certificados TLS de múltiples hosts y extrae SANs.
+
+    - dominios_conocidos: set de dominios ya descubiertos (crt.sh, DNS, etc.)
+    - hosts_a_probar: lista de IPs/hostnames a conectar
+    - puertos_tls: puertos HTTPS a probar por host (default: [443, 8443, 9443])
+
+    Devuelve:
+    - certs: lista de cert info por host
+    - san_nuevos: SANs no vistos en dominios_conocidos
+    - san_staging: SANs que matchean patrones staging/dev/test
+    - cohosted: dominios que comparten certificado (misma infra)
+    """
+    if puertos_tls is None:
+        puertos_tls = [443, 8443, 9443]
+
+    certs = []
+    todos_san = set()
+    # Map: SAN -> set of hosts that serve it (for co-hosting detection)
+    san_a_hosts = defaultdict(set)
+
+    probed = set()
+    for host in hosts_a_probar:
+        for puerto in puertos_tls:
+            key = (host, puerto)
+            if key in probed:
+                continue
+            probed.add(key)
+
+            info = _extraer_san_cert(host, puerto, timeout)
+            if info.get("error"):
+                continue
+
+            sans = info.get("san_names", [])
+            if not sans:
+                continue
+
+            certs.append(info)
+            for san in sans:
+                # Remove wildcard prefix for matching
+                clean = san.lstrip("*.")
+                todos_san.add(clean)
+                san_a_hosts[clean].add(host)
+
+    # Normalize known domains
+    conocidos_norm = {d.lower().lstrip("*.") for d in dominios_conocidos}
+
+    # New SANs not in known set
+    san_nuevos = sorted(todos_san - conocidos_norm)
+
+    # SANs matching staging patterns
+    san_staging = []
+    for san in sorted(todos_san):
+        san_lower = san.lower()
+        for pattern in STAGING_PATTERNS:
+            if pattern in san_lower:
+                san_staging.append({"san": san, "pattern": pattern})
+                break
+
+    # Co-hosted: SANs served by multiple hosts
+    cohosted = {}
+    for san, hosts in san_a_hosts.items():
+        if len(hosts) > 1:
+            cohosted[san] = sorted(hosts)
+
+    # Shared certs: group hosts that serve identical SAN sets
+    cert_groups = defaultdict(list)
+    for cert in certs:
+        san_key = tuple(cert.get("san_names", []))
+        if san_key:
+            cert_groups[san_key].append(f"{cert['host']}:{cert['port']}")
+
+    shared_certs = {
+        ", ".join(sorted(sans)): endpoints
+        for sans, endpoints in cert_groups.items()
+        if len(endpoints) > 1
+    }
+
+    return {
+        "certs": certs,
+        "total_unique_sans": len(todos_san),
+        "san_nuevos": san_nuevos,
+        "san_staging": san_staging,
+        "cohosted": cohosted,
+        "shared_certs": shared_certs,
+    }
 # ── VIRUSTOTAL (passive DNS / subdomains) ─────────────────────────────────────
 def buscar_virustotal(domain: str, api_key: str, max_results: int = 200):
     """Consulta VirusTotal para subdominios via relación 'subdomains'.
@@ -761,6 +965,9 @@ if __name__ == "__main__":
     parser.add_argument("--skip-ripestat", action="store_true", help="Saltar RIPE Stat (rate limited)")
     parser.add_argument("--skip-wayback", action="store_true", help="Saltar Wayback Machine")
     parser.add_argument("--skip-portscan", action="store_true", help="Saltar port scanning")
+    parser.add_argument("--skip-san", action="store_true", help="Saltar TLS SAN analysis")
+    parser.add_argument("--san-timeout", type=float, default=5.0, help="TLS connect timeout for SAN extraction (default: 5)")
+    parser.add_argument("--san-ports", default="443,8443,9443", help="TLS ports for SAN probing (default: 443,8443,9443)")
     parser.add_argument("--scan-timeout", type=float, default=2.0, help="Timeout por puerto en segundos (default: 2)")
     parser.add_argument("--scan-ports", default=None, help="Puertos a escanear (ej: '22,80,443,8080')")
     parser.add_argument("--scan-method", choices=["auto", "scapy", "nc", "socket"], default="auto",
@@ -783,7 +990,7 @@ if __name__ == "__main__":
             "ripe": [], "bgpview": [], "shodan": [],
             "crtsh": [], "dns": {}, "ripestat": {}, "reverse_dns": [],
             "wayback": {}, "portscan": {},
-            "virustotal": {}, "securitytrails": {},
+            "virustotal": {}, "securitytrails": {}, "tls_san": {},
         }
 
         # ── RIPE NCC ──
@@ -955,6 +1162,75 @@ if __name__ == "__main__":
                 else:
                     print(f"    Sin puertos abiertos (o filtrados)")
 
+        # ── TLS SAN Analysis ──
+        if not args.skip_san:
+            print("\n[TLS Certificate SAN Analysis]")
+            # Collect all known domains from previous steps
+            dominios_conocidos = set()
+            for c in todos[nombre]["crtsh"]:
+                dominios_conocidos.add(c["subdomain"])
+            for domain in config.get("domains", []):
+                dominios_conocidos.add(domain)
+            for domain, dns_info in todos[nombre]["dns"].items():
+                dominios_conocidos.add(domain)
+            for vt_data in todos[nombre]["virustotal"].values():
+                for sub in vt_data.get("subdominios", []):
+                    dominios_conocidos.add(sub.get("subdomain", ""))
+            for st_data in todos[nombre]["securitytrails"].values():
+                for sub in st_data.get("subdominios", []):
+                    dominios_conocidos.add(sub)
+
+            # Collect hosts to probe: IPs from DNS A records + RIPE ranges + discovered subdomains
+            hosts_a_probar = []
+            for domain, dns_info in todos[nombre]["dns"].items():
+                for ip in dns_info.get("A", []):
+                    hosts_a_probar.append(ip)
+            for entry in todos[nombre]["ripe"][:5]:
+                inetnum = entry.get("inetnum", "")
+                if inetnum:
+                    hosts_a_probar.append(inetnum.split(" - ")[0].strip())
+            # Also probe discovered subdomains directly (TLS may reveal extra SANs)
+            crtsh_subs = sorted(set(c["subdomain"] for c in todos[nombre]["crtsh"]
+                                    if not c["subdomain"].startswith("*.")))
+            hosts_a_probar.extend(crtsh_subs[:50])  # Limit to avoid excessive probing
+
+            # Dedup
+            hosts_a_probar = list(dict.fromkeys(hosts_a_probar))
+            san_ports = [int(p.strip()) for p in args.san_ports.split(",")]
+
+            print(f"  Probando {len(hosts_a_probar)} hosts en puertos {san_ports}")
+            san_result = analizar_san(dominios_conocidos, hosts_a_probar,
+                                      puertos_tls=san_ports, timeout=args.san_timeout)
+            todos[nombre]["tls_san"] = san_result
+
+            print(f"  Certificados obtenidos: {len(san_result['certs'])}")
+            print(f"  SANs únicos totales: {san_result['total_unique_sans']}")
+
+            if san_result["san_nuevos"]:
+                print(f"  SANs NUEVOS (no en crt.sh/DNS/VT/ST): {len(san_result['san_nuevos'])}")
+                for san in san_result["san_nuevos"][:30]:
+                    print(f"    [NEW] {san}")
+                if len(san_result["san_nuevos"]) > 30:
+                    print(f"    ... y {len(san_result['san_nuevos']) - 30} más")
+
+            if san_result["san_staging"]:
+                print(f"  SANs con patrones STAGING/DEV/TEST: {len(san_result['san_staging'])}")
+                for entry in san_result["san_staging"][:20]:
+                    print(f"    [STAGING:{entry['pattern']}] {entry['san']}")
+
+            if san_result["cohosted"]:
+                print(f"  Dominios co-hosted (mismo SAN, múltiples hosts): {len(san_result['cohosted'])}")
+                for san, hosts in list(san_result["cohosted"].items())[:10]:
+                    print(f"    {san} -> {', '.join(hosts)}")
+
+            if san_result["shared_certs"]:
+                print(f"  Certs compartidos (mismos SANs): {len(san_result['shared_certs'])}")
+                for sans, endpoints in list(san_result["shared_certs"].items())[:5]:
+                    print(f"    [{', '.join(endpoints)}]")
+                    print(f"      SANs: {sans[:120]}{'...' if len(sans) > 120 else ''}")
+        else:
+            print("\n[TLS SAN Analysis] Saltado (--skip-san)")
+
         # ── BGPView ──
         print("\n[BGPView]")
         for q in config["bgpview_queries"]:
@@ -1006,5 +1282,7 @@ if __name__ == "__main__":
         st_subs = sum(len(d.get("subdominios", [])) for d in data["securitytrails"].values())
         st_hist = sum(len(recs) for d in data["securitytrails"].values() for recs in d.get("dns_history", {}).values())
         print(f"  ST subdominios: {st_subs} ({st_hist} DNS history records)")
+        san = data.get("tls_san", {})
+        print(f"  TLS SANs:       {san.get('total_unique_sans', 0)} únicos ({len(san.get('san_nuevos', []))} nuevos, {len(san.get('san_staging', []))} staging)")
         print(f"  BGPView ASNs:   {len(data['bgpview'])}")
         print(f"  Shodan hosts:   {len(data['shodan'])}")
