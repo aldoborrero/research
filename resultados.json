@@ -1,0 +1,356 @@
+{
+  "DGT": {
+    "ripe": [
+      {
+        "inetnum": "195.55.52.120 - 195.55.52.127",
+        "netname": "DGT",
+        "descr": [
+          "DIRECCION GENERAL DE TRAFICO",
+          "Internet Public Addresses"
+        ],
+        "country": "ES",
+        "status": "ASSIGNED PA"
+      },
+      {
+        "inetnum": "195.235.106.188 - 195.235.106.191",
+        "netname": "DGT",
+        "descr": [
+          "Direccion General de Trafico",
+          "Internet Public Adresses"
+        ],
+        "country": "ES",
+        "status": "ASSIGNED PA"
+      },
+      {
+        "inetnum": "212.128.100.128 - 212.128.100.255",
+        "netname": "DGT",
+        "country": "ES",
+        "status": "ASSIGNED PA"
+      },
+      {
+        "inetnum": "213.0.29.192 - 213.0.29.223",
+        "netname": "DGT",
+        "descr": [
+          "DIRECCION GENERAL TRAFICO",
+          "Internet Public Addresses"
+        ],
+        "country": "ES",
+        "status": "ASSIGNED PA"
+      },
+      {
+        "inetnum": "217.40.127.16 - 217.40.127.23",
+        "netname": "DGT",
+        "descr": "BT-ADSL",
+        "country": "GB",
+        "status": "ASSIGNED PA"
+      }
+    ],
+    "bgpview": [],
+    "shodan": [],
+    "crtsh": [
+      {
+        "subdomain": "sede.dgt.gob.es",
+        "issuer": "C=US, O=Let's Encrypt, CN=R12",
+        "not_before": "2026-01-23T10:42:16",
+        "not_after": "2026-04-23T10:42:15"
+      },
+      {
+        "subdomain": "*.dgt.gob.es",
+        "issuer": "C=ES, O=FNMT-RCM, OU=AC Componentes Informáticos",
+        "not_before": "2025-09-19T09:12:26",
+        "not_after": "2026-09-19T09:12:26"
+      },
+      {
+        "subdomain": "dgt.gob.es",
+        "issuer": "C=ES, O=FNMT-RCM, OU=AC Componentes Informáticos",
+        "not_before": "2025-09-19T09:12:26",
+        "not_after": "2026-09-19T09:12:26"
+      },
+      {
+        "subdomain": "sedeidentificacion.dgt.gob.es",
+        "issuer": "C=US, O=Amazon, CN=Amazon RSA 2048 M02",
+        "not_before": "2024-06-06T00:00:00",
+        "not_after": "2025-07-05T23:59:59"
+      },
+      {
+        "subdomain": "sedeidentificacion-test.dgt.gob.es",
+        "issuer": "C=US, O=Amazon, CN=Amazon RSA 2048 M02",
+        "not_before": "2024-06-06T00:00:00",
+        "not_after": "2025-07-05T23:59:59"
+      },
+      {
+        "subdomain": "sedeidentificacion-dev.dgt.gob.es",
+        "issuer": "C=US, O=Amazon, CN=Amazon RSA 2048 M03",
+        "not_before": "2024-06-05T00:00:00",
+        "not_after": "2025-07-04T23:59:59"
+      },
+      {
+        "subdomain": "sede-test.dgt.gob.es",
+        "issuer": "C=US, O=Let's Encrypt, CN=R3",
+        "not_before": "2022-09-07T05:50:32",
+        "not_after": "2022-12-06T05:50:31"
+      },
+      {
+        "subdomain": "pasarela.dgt.gob.es",
+        "issuer": "C=ES, O=FNMT-RCM, OU=AC Componentes Informáticos",
+        "not_before": "2015-10-23T11:24:42",
+        "not_after": "2018-10-23T11:24:41"
+      },
+      {
+        "subdomain": "sedecr.dgt.gob.es",
+        "issuer": "C=ES, O=AC CAMERFIRMA S.A., L=MADRID (Ver en https://www.camerfirma.com/address), OU=AC CAMERFIRMA, serialNumber=A82743287, CN=AC CAMERFIRMA AAPP",
+        "not_before": "2010-09-21T10:42:03",
+        "not_after": "2013-09-20T10:42:03"
+      },
+      {
+        "subdomain": "extranet.dgt.gob.es",
+        "issuer": "C=ES, O=FNMT-RCM, OU=AC Componentes Informáticos",
+        "not_before": "2015-10-23T11:19:28",
+        "not_after": "2018-10-23T11:19:26"
+      },
+      {
+        "subdomain": "sedeapl.dgt.gob.es",
+        "issuer": "C=ES, O=FNMT-RCM, OU=CERES, serialNumber=Q2826004J, CN=AC Administración Pública",
+        "not_before": "2013-12-05T10:46:52",
+        "not_after": "2016-12-05T10:46:52"
+      }
+    ],
+    "dns": {
+      "dgt.es": {
+        "A": [
+          "104.88.206.196",
+          "104.88.206.215"
+        ],
+        "AAAA": [
+          "2600:1407:3c00:1b15::17d2:f409",
+          "2600:1407:3c00:1b15::17d2:f415"
+        ],
+        "MX": [
+          "10 mail1.correo.gob.es.",
+          "10 mail2.correo.gob.es."
+        ],
+        "NS": [
+          "ns1.age.gob.es.",
+          "ns2.age.gob.es."
+        ],
+        "TXT": [
+          "\"374208432\"",
+          "\"1598006780451\"",
+          "\"1631869590156\"",
+          "\"1662362767400\"",
+          "\"MS=ms20379383\"",
+          "\"MS=ms79195163\"",
+          "\"MS=74B69520311A2D802FAF423465EF3508970AC2F1\"",
+          "\"cisco-ci-domain-verification=133c95457856ef3a7899bf7d961451933a1b14b6461c5fed743c1dd11d9735ec\"",
+          "\"v=spf1 mx ip4:212.128.100.149 ip4:212.128.100.150 a:spf.correo.gob.es include:spf.protection.outlook.com -all\""
+        ],
+        "SOA": [
+          "ns1.age.gob.es. dns.cloudflare.com. 2399323624 10000 2400 604800 1800"
+        ],
+        "security_policies": {
+          "SPF": "\"v=spf1 mx ip4:212.128.100.149 ip4:212.128.100.150 a:spf.correo.gob.es include:spf.protection.outlook.com -all\"",
+          "DMARC": "\"v=DMARC1; p=quarantine; rua=mailto:informes.correo@dgt.es;ruf=mailto:alertas.correo@dgt.es; fo=0:1:d:s;\""
+        }
+      },
+      "dgt.gob.es": {
+        "NS": [
+          "ns1.age.gob.es.",
+          "ns2.age.gob.es."
+        ],
+        "TXT": [
+          "\"285309787\"",
+          "\"457809222\"",
+          "\"925765014\"",
+          "\"v=spf1 -all\"",
+          "\"1608047288597\"",
+          "\"1636642454014\"",
+          "\"1665979880721\"",
+          "\"dgt.gob.es-020373157\""
+        ],
+        "SOA": [
+          "ns1.age.gob.es. dns.cloudflare.com. 2399323634 10000 2400 604800 1800"
+        ],
+        "security_policies": {
+          "SPF": "\"v=spf1 -all\""
+        }
+      }
+    },
+    "ripestat": {
+      "195.55.52.120 - 195.55.52.127": {
+        "routing": {
+          "status": null,
+          "first_seen": {
+            "prefix": "195.55.0.0/16",
+            "origin": "3352",
+            "time": "2000-08-18T08:00:00"
+          },
+          "last_seen": {
+            "prefix": "195.55.0.0/16",
+            "origin": "3352",
+            "time": "2026-03-21T16:00:00"
+          },
+          "visibility": null
+        },
+        "geolocation": [
+          {
+            "prefix": "195.55.52.120/32",
+            "country": "ES",
+            "city": ""
+          }
+        ],
+        "abuse_contacts": [
+          "nemesys@telefonica.es"
+        ],
+        "authoritative_rir": "ripe",
+        "network_info": {
+          "asns": [
+            "3352"
+          ],
+          "prefix": "195.55.0.0/16"
+        }
+      },
+      "195.235.106.188 - 195.235.106.191": {
+        "routing": {
+          "status": null,
+          "first_seen": {
+            "prefix": "195.235.0.0/16",
+            "origin": "3352",
+            "time": "2000-08-18T08:00:00"
+          },
+          "last_seen": {
+            "prefix": "195.235.0.0/16",
+            "origin": "3352",
+            "time": "2026-03-21T16:00:00"
+          },
+          "visibility": null
+        },
+        "geolocation": [
+          {
+            "prefix": "195.235.106.188/32",
+            "country": "ES",
+            "city": ""
+          }
+        ],
+        "abuse_contacts": [
+          "nemesys@telefonica.es"
+        ],
+        "authoritative_rir": "ripe"
+      },
+      "212.128.100.128 - 212.128.100.255": {
+        "routing": {
+          "status": null,
+          "first_seen": {
+            "prefix": "212.128.100.0/24",
+            "origin": "200521",
+            "time": "2017-01-31T16:00:00"
+          },
+          "last_seen": {
+            "prefix": "212.128.100.0/24",
+            "origin": "200521",
+            "time": "2026-03-21T16:00:00"
+          },
+          "visibility": null
+        },
+        "geolocation": [
+          {
+            "prefix": "212.128.100.128/32",
+            "country": "ES",
+            "city": "Madrid"
+          }
+        ],
+        "abuse_contacts": [
+          "seap-age.ripe-adm@correo.gob.es"
+        ],
+        "authoritative_rir": "ripe",
+        "network_info": {
+          "asns": [
+            "200521"
+          ],
+          "prefix": "212.128.100.0/24"
+        }
+      },
+      "213.0.29.192 - 213.0.29.223": {
+        "routing": {
+          "status": null,
+          "first_seen": {
+            "prefix": "213.0.0.0/16",
+            "origin": "3352",
+            "time": "2000-08-18T08:00:00"
+          },
+          "last_seen": {
+            "prefix": "213.0.0.0/16",
+            "origin": "3352",
+            "time": "2026-03-21T16:00:00"
+          },
+          "visibility": null
+        },
+        "geolocation": [
+          {
+            "prefix": "213.0.29.192/32",
+            "country": "ES",
+            "city": "Palma"
+          }
+        ],
+        "abuse_contacts": [
+          "nemesys@telefonica.es"
+        ],
+        "authoritative_rir": "ripe",
+        "network_info": {
+          "asns": [
+            "3352"
+          ],
+          "prefix": "213.0.0.0/16"
+        }
+      },
+      "217.40.127.16 - 217.40.127.23": {
+        "routing": {
+          "status": null,
+          "first_seen": {
+            "prefix": "217.32.0.0/12",
+            "origin": "2856",
+            "time": "2000-10-31T00:00:00"
+          },
+          "last_seen": {
+            "prefix": "217.32.0.0/12",
+            "origin": "2856",
+            "time": "2026-03-21T16:00:00"
+          },
+          "visibility": null
+        },
+        "geolocation": [
+          {
+            "prefix": "217.40.127.16/32",
+            "country": "GB",
+            "city": "Canvey Island"
+          }
+        ],
+        "abuse_contacts": [
+          "abuse@bt.com"
+        ],
+        "authoritative_rir": "ripe",
+        "network_info": {
+          "asns": [
+            "2856"
+          ],
+          "prefix": "217.32.0.0/12"
+        }
+      }
+    },
+    "reverse_dns": [],
+    "wayback": {
+      "dgt.es": {},
+      "dgt.gob.es": {}
+    },
+    "portscan": {},
+    "virustotal": {},
+    "securitytrails": {},
+    "tls_san": {
+      "certs": [],
+      "total_unique_sans": 0,
+      "san_nuevos": [],
+      "san_staging": [],
+      "cohosted": {},
+      "shared_certs": {}
+    }
+  }
+}
