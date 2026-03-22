@@ -5,116 +5,707 @@ import socket
 import ssl
 import ipaddress
 from collections import defaultdict
-# ── RIPE NCC ──────────────────────────────────────────────────────────────────
-def buscar_ripe(query: str, delay: float = 1.0):
-    """Busca rangos de IP en RIPE NCC.
+# ── RIPE DB helpers ──────────────────────────────────────────────────────────
+_RIPE_DB_BASE = "https://rest.db.ripe.net"
+_RIPE_DB_HEADERS = {"Accept": "application/json"}
+
+
+def _ripe_parse_objects(data: dict, campos: set | None = None):
+    """Parse RIPE DB JSON response into a list of dicts.
+
+    If *campos* is None every attribute is kept.
+    """
+    resultados = []
+    for obj in data.get("objects", {}).get("object", []):
+        obj_type = obj.get("type", "")
+        entry = defaultdict(list)
+        for attr in obj.get("attributes", {}).get("attribute", []):
+            name = attr["name"]
+            if campos is None or name in campos:
+                entry[name].append(attr["value"])
+        final = {k: v[0] if len(v) == 1 else v for k, v in entry.items()}
+        if final:
+            final["_type"] = obj_type
+            resultados.append(final)
+    return resultados
+
+
+# ── RIPE NCC DB — search ─────────────────────────────────────────────────────
+def buscar_ripe(query: str, type_filter: str = "inetnum,inet6num,aut-num",
+                flags: str = "no-referenced", delay: float = 1.0):
+    """Busca objetos en la RIPE DB via full-text search.
 
     RIPE search API treats multi-word strings as multiple lookup keys.
     For org name searches, single keywords work best (e.g. "Indra" not
     "Indra Sistemas"). For exact ranges use IPs/AS numbers directly.
     """
-    url = "https://rest.db.ripe.net/search.json"
+    url = f"{_RIPE_DB_BASE}/search.json"
     params = {
         "query-string": query,
-        "type-filter": "inetnum,inet6num,aut-num",
+        "source": "RIPE",
+    }
+    if type_filter:
+        params["type-filter"] = type_filter
+    if flags:
+        params["flags"] = flags
+
+    try:
+        r = requests.get(url, params=params, headers=_RIPE_DB_HEADERS, timeout=15)
+        r.raise_for_status()
+    except requests.RequestException as e:
+        print(f"  [!] RIPE search error para '{query}': {e}")
+        return []
+
+    campos = {
+        "inetnum", "inet6num", "aut-num", "netname", "descr", "org",
+        "country", "status", "org-name", "org-type", "address", "mnt-by",
+        "admin-c", "tech-c", "abuse-c", "route", "route6", "origin",
+    }
+    resultados = _ripe_parse_objects(r.json(), campos)
+    time.sleep(delay)
+    return resultados
+
+
+# ── RIPE NCC DB — inverse lookups ────────────────────────────────────────────
+def ripe_inverse_lookup(attr: str, value: str,
+                        type_filter: str | None = None,
+                        delay: float = 1.0):
+    """Inverse lookup: find all objects referencing *value* via *attr*.
+
+    Common attrs: org, admin-c, tech-c, mnt-by, abuse-c, origin, abuse-mailbox.
+    """
+    url = f"{_RIPE_DB_BASE}/search.json"
+    params = {
+        "query-string": value,
+        "inverse-attribute": attr,
         "source": "RIPE",
         "flags": "no-referenced",
     }
-    headers = {"Accept": "application/json"}
+    if type_filter:
+        params["type-filter"] = type_filter
 
     try:
-        r = requests.get(url, params=params, headers=headers, timeout=15)
+        r = requests.get(url, params=params, headers=_RIPE_DB_HEADERS, timeout=15)
         r.raise_for_status()
     except requests.RequestException as e:
-        print(f"  [!] RIPE error para '{query}': {e}")
+        print(f"  [!] RIPE inverse ({attr}={value}) error: {e}")
         return []
 
-    data = r.json()
-
-    resultados = []
-    CAMPOS = {"inetnum", "inet6num", "aut-num", "netname", "descr", "org", "country", "status"}
-
-    for obj in data.get("objects", {}).get("object", []):
-        entry = defaultdict(list)
-        for attr in obj.get("attributes", {}).get("attribute", []):
-            if attr["name"] in CAMPOS:
-                entry[attr["name"]].append(attr["value"])
-
-        final = {k: v[0] if len(v) == 1 else v for k, v in entry.items()}
-        if final:
-            resultados.append(final)
-
+    resultados = _ripe_parse_objects(r.json())
     time.sleep(delay)
     return resultados
-# ── RIPE STAT ─────────────────────────────────────────────────────────────────
-def buscar_ripestat_prefix(prefix: str):
-    """Consulta RIPE Stat para un prefijo: routing, geoloc, abuse contacts."""
-    base = "https://stat.ripe.net/data"
+
+
+def ripe_org_lookup(org_id: str, delay: float = 1.0):
+    """Lookup a single organisation object by its handle (ORG-XXXX-RIPE)."""
+    url = f"{_RIPE_DB_BASE}/ripe/organisation/{org_id}.json"
+    try:
+        r = requests.get(url, headers=_RIPE_DB_HEADERS, timeout=15)
+        r.raise_for_status()
+    except requests.RequestException as e:
+        print(f"  [!] RIPE org lookup error para '{org_id}': {e}")
+        return {}
+
+    objs = _ripe_parse_objects(r.json())
+    time.sleep(delay)
+    return objs[0] if objs else {}
+
+
+def ripe_abuse_contact(resource: str):
+    """Get abuse contact for an IP/prefix/ASN via the RIPE DB abuse-contact endpoint."""
+    url = f"{_RIPE_DB_BASE}/abuse-contact/{resource}.json"
+    try:
+        r = requests.get(url, headers=_RIPE_DB_HEADERS, timeout=10)
+        r.raise_for_status()
+        return r.json().get("abuse-contacts", {}).get("email")
+    except requests.RequestException:
+        return None
+
+
+def ripe_find_org_resources(org_id: str, delay: float = 0.8):
+    """Given an ORG-XXXX-RIPE handle, find all inetnums, inet6nums, and aut-nums.
+
+    Returns dict with keys: inetnums, inet6nums, autnums (lists of parsed objects).
+    """
+    result = {"inetnums": [], "inet6nums": [], "autnums": []}
+
+    for obj_type, key in [("inetnum", "inetnums"), ("inet6num", "inet6nums"), ("aut-num", "autnums")]:
+        objs = ripe_inverse_lookup("org", org_id, type_filter=obj_type, delay=delay)
+        result[key] = objs
+
+    return result
+
+
+def ripe_find_routes_for_asn(asn: str, delay: float = 0.8):
+    """Find all route/route6 objects originated by an ASN.
+
+    Uses inverse lookup on 'origin' attribute.
+    """
+    asn_str = asn if asn.upper().startswith("AS") else f"AS{asn}"
+    routes4 = ripe_inverse_lookup("origin", asn_str, type_filter="route", delay=delay)
+    routes6 = ripe_inverse_lookup("origin", asn_str, type_filter="route6", delay=delay)
+    return {"route": routes4, "route6": routes6}
+
+
+def ripe_find_by_maintainer(mntner: str, type_filter: str | None = None, delay: float = 0.8):
+    """Find all objects managed by a maintainer (mnt-by inverse)."""
+    return ripe_inverse_lookup("mnt-by", mntner, type_filter=type_filter, delay=delay)
+
+
+def ripe_more_specific(prefix: str, delay: float = 1.0):
+    """Find all more-specific (child) allocations within a prefix."""
+    url = f"{_RIPE_DB_BASE}/search.json"
+    params = {
+        "query-string": prefix,
+        "source": "RIPE",
+        "flags": "all-more,no-referenced",
+        "type-filter": "inetnum,inet6num",
+    }
+    try:
+        r = requests.get(url, params=params, headers=_RIPE_DB_HEADERS, timeout=15)
+        r.raise_for_status()
+    except requests.RequestException as e:
+        print(f"  [!] RIPE more-specific error para '{prefix}': {e}")
+        return []
+
+    resultados = _ripe_parse_objects(r.json())
+    time.sleep(delay)
+    return resultados
+# ── RIPE STAT helpers ─────────────────────────────────────────────────────────
+_RIPESTAT_BASE = "https://stat.ripe.net/data"
+
+
+def _ripestat_get(endpoint: str, params: dict, label: str = ""):
+    """Generic RIPE Stat data call. Returns the 'data' dict or {}."""
+    url = f"{_RIPESTAT_BASE}/{endpoint}/data.json"
+    try:
+        r = requests.get(url, params=params, timeout=20)
+        r.raise_for_status()
+        return r.json().get("data", {})
+    except requests.RequestException as e:
+        print(f"  [!] RIPE Stat {label or endpoint} error: {e}")
+        return {}
+
+
+# ── RIPE STAT — prefix/IP queries ────────────────────────────────────────────
+def ripestat_prefix_overview(prefix: str):
+    """Prefix overview: origin ASNs, holder, related prefixes, announcement status."""
+    data = _ripestat_get("prefix-overview", {"resource": prefix}, f"prefix-overview({prefix})")
+    if not data:
+        return {}
+    return {
+        "is_announced": data.get("announced"),
+        "asns": [
+            {"asn": a.get("asn"), "holder": a.get("holder")}
+            for a in data.get("asns", [])
+        ],
+        "related_prefixes": [
+            {"prefix": rp.get("prefix"), "origin_asn": rp.get("asn"), "relationship": rp.get("relationship")}
+            for rp in data.get("related_prefixes", [])
+        ],
+        "resource": data.get("resource"),
+        "block": data.get("block", {}).get("resource"),
+    }
+
+
+def ripestat_network_info(ip: str):
+    """Network info: containing prefix + announcing ASN for a single IP."""
+    data = _ripestat_get("network-info", {"resource": ip}, f"network-info({ip})")
+    return {"asns": data.get("asns", []), "prefix": data.get("prefix")} if data else {}
+
+
+def ripestat_address_space_hierarchy(prefix: str):
+    """Address space hierarchy: parent (less-specific) and child (more-specific) allocations."""
+    data = _ripestat_get("address-space-hierarchy", {"resource": prefix},
+                         f"addr-hierarchy({prefix})")
+    if not data:
+        return {}
+    exact = []
+    for obj in data.get("exact", []):
+        exact.append({
+            "inetnum": obj.get("inetnum"),
+            "netname": obj.get("netname"),
+            "descr": obj.get("descr"),
+            "org": obj.get("org"),
+            "country": obj.get("country"),
+            "status": obj.get("status"),
+        })
+    more_specific = [
+        {"inetnum": o.get("inetnum"), "netname": o.get("netname")}
+        for o in data.get("more_specific", [])
+    ]
+    less_specific = [
+        {"inetnum": o.get("inetnum"), "netname": o.get("netname")}
+        for o in data.get("less_specific", [])
+    ]
+    return {
+        "rir": data.get("rir"),
+        "exact": exact,
+        "more_specific": more_specific,
+        "less_specific": less_specific,
+    }
+
+
+def ripestat_routing_status(resource: str):
+    """Routing status: first/last seen, visibility, origin ASes."""
+    data = _ripestat_get("routing-status", {"resource": resource},
+                         f"routing-status({resource})")
+    if not data:
+        return {}
+    return {
+        "status": data.get("status"),
+        "first_seen": data.get("first_seen"),
+        "last_seen": data.get("last_seen"),
+        "visibility_v4": data.get("visibility", {}).get("v4", {}).get("total_peers"),
+        "visibility_v6": data.get("visibility", {}).get("v6", {}).get("total_peers"),
+        "announced_space": data.get("announced_space"),
+        "observed_neighbours": data.get("observed_neighbours"),
+    }
+
+
+def ripestat_geolocation(prefix: str):
+    """Geolocation via MaxMind GeoLite."""
+    data = _ripestat_get("maxmind-geo-lite", {"resource": prefix}, f"geo({prefix})")
+    if not data:
+        return []
+    return [
+        {
+            "prefix": loc.get("resource"),
+            "country": loc.get("locations", [{}])[0].get("country") if loc.get("locations") else None,
+            "city": loc.get("locations", [{}])[0].get("city") if loc.get("locations") else None,
+            "latitude": loc.get("locations", [{}])[0].get("latitude") if loc.get("locations") else None,
+            "longitude": loc.get("locations", [{}])[0].get("longitude") if loc.get("locations") else None,
+        }
+        for loc in data.get("located_resources", [])
+    ]
+
+
+def ripestat_abuse_contacts(resource: str):
+    """Abuse contact finder."""
+    data = _ripestat_get("abuse-contact-finder", {"resource": resource},
+                         f"abuse({resource})")
+    return {
+        "abuse_contacts": data.get("abuse_contacts", []),
+        "authoritative_rir": data.get("authoritative_rir"),
+    } if data else {}
+
+
+def ripestat_reverse_dns(prefix: str):
+    """Reverse DNS delegations for a prefix."""
+    data = _ripestat_get("reverse-dns", {"resource": prefix}, f"rdns({prefix})")
+    if not data:
+        return []
+    delegations = []
+    for d in data.get("delegations", []):
+        delegations.append({
+            "key": d.get("key"),
+            "value": d.get("value"),
+            "nservers": d.get("nservers", []),
+        })
+    return delegations
+
+
+def ripestat_dns_chain(hostname: str):
+    """DNS resolution chain for a hostname."""
+    data = _ripestat_get("dns-chain", {"resource": hostname}, f"dns-chain({hostname})")
+    if not data:
+        return {}
+    return {
+        "forward_nodes": data.get("forward_nodes", []),
+        "reverse_nodes": data.get("reverse_nodes", []),
+        "nameservers": data.get("nameservers", []),
+    }
+
+
+def ripestat_rpki_validation(asn: str, prefix: str):
+    """RPKI validation for an ASN+prefix pair."""
+    data = _ripestat_get("rpki-validation", {"resource": asn, "prefix": prefix},
+                         f"rpki({asn},{prefix})")
+    if not data:
+        return {}
+    return {
+        "status": data.get("status"),
+        "description": data.get("description"),
+        "validating_roas": data.get("validating_roas", []),
+    }
+
+
+def ripestat_whois(resource: str):
+    """Full WHOIS lookup across all RIRs."""
+    data = _ripestat_get("whois", {"resource": resource}, f"whois({resource})")
+    if not data:
+        return {}
+    records = []
+    for rec in data.get("records", []):
+        record_attrs = {}
+        for attr in rec:
+            record_attrs[attr.get("key", "")] = attr.get("value", "")
+        if record_attrs:
+            records.append(record_attrs)
+    return {
+        "records": records,
+        "irr_records": data.get("irr_records", []),
+        "authorities": data.get("authorities", []),
+    }
+
+
+def ripestat_historical_whois(resource: str):
+    """Historical WHOIS: version count and change history."""
+    data = _ripestat_get("historical-whois", {"resource": resource},
+                         f"hist-whois({resource})")
+    if not data:
+        return {}
+    versions = []
+    for obj in data.get("objects", []):
+        for v in obj.get("versions", []):
+            versions.append({
+                "version": v.get("version"),
+                "from": v.get("from"),
+                "to": v.get("to"),
+            })
+    return {
+        "num_versions": data.get("num_versions"),
+        "versions": versions,
+    }
+
+
+# ── RIPE STAT — ASN queries ─────────────────────────────────────────────────
+def ripestat_as_overview(asn: str):
+    """AS overview: holder name, announcement status, type."""
+    data = _ripestat_get("as-overview", {"resource": asn}, f"as-overview({asn})")
+    if not data:
+        return {}
+    return {
+        "holder": data.get("holder"),
+        "announced": data.get("announced"),
+        "type": data.get("type"),
+        "block": data.get("block", {}).get("resource"),
+    }
+
+
+def ripestat_announced_prefixes(asn: str):
+    """All prefixes announced by an ASN, with visibility timelines."""
+    data = _ripestat_get("announced-prefixes", {"resource": asn},
+                         f"announced-prefixes({asn})")
+    if not data:
+        return []
+    return [
+        {
+            "prefix": p.get("prefix"),
+            "timelines": [
+                {"starttime": t.get("starttime"), "endtime": t.get("endtime")}
+                for t in p.get("timelines", [])
+            ],
+        }
+        for p in data.get("prefixes", [])
+    ]
+
+
+def ripestat_asn_neighbours(asn: str):
+    """ASN neighbours: peering/transit relationships."""
+    data = _ripestat_get("asn-neighbours", {"resource": asn},
+                         f"asn-neighbours({asn})")
+    if not data:
+        return {}
+    neighbours = []
+    for n in data.get("neighbours", []):
+        neighbours.append({
+            "asn": n.get("asn"),
+            "type": n.get("type"),  # left/right/uncertain
+            "power": n.get("power"),
+            "v4_peers": n.get("v4_peers"),
+            "v6_peers": n.get("v6_peers"),
+        })
+    return {
+        "neighbour_count": data.get("neighbour_counts", {}),
+        "neighbours": neighbours,
+    }
+
+
+def ripestat_asn_neighbours_history(asn: str):
+    """Historical ASN peering/transit neighbours over time."""
+    data = _ripestat_get("asn-neighbours-history", {"resource": asn},
+                         f"asn-neighbours-history({asn})")
+    if not data:
+        return []
+    return [
+        {
+            "neighbour": n.get("neighbour"),
+            "type": n.get("type"),
+            "timelines": [
+                {"starttime": t.get("starttime"), "endtime": t.get("endtime")}
+                for t in n.get("timelines", [])
+            ],
+        }
+        for n in data.get("neighbours", [])
+    ]
+
+
+def ripestat_looking_glass(prefix: str):
+    """Looking glass: per-RRC collector routing data."""
+    data = _ripestat_get("looking-glass", {"resource": prefix},
+                         f"looking-glass({prefix})")
+    if not data:
+        return []
+    rrcs = []
+    for rrc in data.get("rrcs", []):
+        peers = []
+        for p in rrc.get("peers", []):
+            peers.append({
+                "asn_origin": p.get("asn_origin"),
+                "as_path": p.get("as_path"),
+                "community": p.get("community"),
+                "next_hop": p.get("next_hop"),
+                "peer": p.get("peer"),
+            })
+        rrcs.append({
+            "rrc": rrc.get("rrc"),
+            "location": rrc.get("location"),
+            "peers": peers,
+        })
+    return rrcs
+
+
+def ripestat_routing_history(resource: str, starttime: str | None = None,
+                              endtime: str | None = None):
+    """Routing history: BGP routing changes over time."""
+    params = {"resource": resource, "min_peers": 5}
+    if starttime:
+        params["starttime"] = starttime
+    if endtime:
+        params["endtime"] = endtime
+    data = _ripestat_get("routing-history", params, f"routing-history({resource})")
+    if not data:
+        return []
+    entries = []
+    for route in data.get("by_origin", []):
+        origin = route.get("origin")
+        prefixes = []
+        for p in route.get("prefixes", []):
+            prefixes.append({
+                "prefix": p.get("prefix"),
+                "timelines": [
+                    {"starttime": t.get("starttime"), "endtime": t.get("endtime")}
+                    for t in p.get("timelines", [])
+                ],
+            })
+        entries.append({"origin": origin, "prefixes": prefixes})
+    return entries
+
+
+def ripestat_prefix_routing_consistency(asn: str):
+    """Prefix routing consistency: whether announced prefixes match WHOIS."""
+    data = _ripestat_get("prefix-routing-consistency", {"resource": asn},
+                         f"prefix-routing-consistency({asn})")
+    if not data:
+        return []
+    return [
+        {
+            "prefix": r.get("prefix"),
+            "origin": r.get("origin"),
+            "in_whois": r.get("in_whois"),
+            "in_bgp": r.get("in_bgp"),
+            "irr_sources": r.get("irr_sources"),
+        }
+        for r in data.get("routes", [])
+    ]
+
+
+def ripestat_geo_by_asn(asn: str):
+    """Geographic distribution of prefixes announced by an ASN."""
+    data = _ripestat_get("maxmind-geo-lite-announced-by-as", {"resource": asn},
+                         f"geo-by-asn({asn})")
+    if not data:
+        return []
+    return [
+        {
+            "prefix": loc.get("resource"),
+            "country": loc.get("locations", [{}])[0].get("country") if loc.get("locations") else None,
+            "city": loc.get("locations", [{}])[0].get("city") if loc.get("locations") else None,
+        }
+        for loc in data.get("located_resources", [])
+    ]
+
+
+# ── RIPE STAT — country queries ──────────────────────────────────────────────
+def ripestat_country_resources(country_code: str):
+    """All ASNs, IPv4 ranges, and IPv6 prefixes allocated to a country."""
+    data = _ripestat_get("country-resource-list",
+                         {"resource": country_code, "v4_format": "prefix"},
+                         f"country-resources({country_code})")
+    if not data:
+        return {}
+    resources = data.get("resources", {})
+    return {
+        "asn": resources.get("asn", []),
+        "ipv4": resources.get("ipv4", []),
+        "ipv6": resources.get("ipv6", []),
+    }
+
+
+# ── RIPE STAT — combined prefix analysis (replaces old buscar_ripestat_prefix)
+def buscar_ripestat_prefix(prefix: str, include_hierarchy: bool = False,
+                            include_looking_glass: bool = False):
+    """Comprehensive RIPE Stat analysis for a prefix.
+
+    Always queries: routing-status, geolocation, abuse-contacts, network-info,
+    prefix-overview, RPKI validation.
+    Optionally: address-space-hierarchy, looking-glass.
+    """
     resultados = {}
 
-    # Routing status
-    try:
-        r = requests.get(f"{base}/routing-status/data.json",
-                         params={"resource": prefix}, timeout=15)
-        r.raise_for_status()
-        data = r.json().get("data", {})
-        resultados["routing"] = {
-            "status": data.get("status"),
-            "first_seen": data.get("first_seen"),
-            "last_seen": data.get("last_seen"),
-            "visibility": data.get("visibility", {}).get("v4", {}).get("total_peers"),
-        }
-    except requests.RequestException as e:
-        print(f"  [!] RIPE Stat routing error para '{prefix}': {e}")
+    resultados["routing"] = ripestat_routing_status(prefix)
+    time.sleep(0.3)
 
-    time.sleep(0.5)
+    resultados["geolocation"] = ripestat_geolocation(prefix)
+    time.sleep(0.3)
 
-    # Geolocation
-    try:
-        r = requests.get(f"{base}/maxmind-geo-lite/data.json",
-                         params={"resource": prefix}, timeout=15)
-        r.raise_for_status()
-        locs = r.json().get("data", {}).get("located_resources", [])
-        resultados["geolocation"] = [
-            {
-                "prefix": loc.get("resource"),
-                "country": loc.get("locations", [{}])[0].get("country") if loc.get("locations") else None,
-                "city": loc.get("locations", [{}])[0].get("city") if loc.get("locations") else None,
-            }
-            for loc in locs
-        ]
-    except requests.RequestException as e:
-        print(f"  [!] RIPE Stat geo error para '{prefix}': {e}")
+    abuse = ripestat_abuse_contacts(prefix)
+    resultados["abuse_contacts"] = abuse.get("abuse_contacts", [])
+    resultados["authoritative_rir"] = abuse.get("authoritative_rir")
+    time.sleep(0.3)
 
-    time.sleep(0.5)
+    resultados["network_info"] = ripestat_network_info(prefix)
+    time.sleep(0.3)
 
-    # Abuse contacts
-    try:
-        r = requests.get(f"{base}/abuse-contact-finder/data.json",
-                         params={"resource": prefix}, timeout=15)
-        r.raise_for_status()
-        data = r.json().get("data", {})
-        resultados["abuse_contacts"] = data.get("abuse_contacts", [])
-        resultados["authoritative_rir"] = data.get("authoritative_rir")
-    except requests.RequestException as e:
-        print(f"  [!] RIPE Stat abuse error para '{prefix}': {e}")
+    resultados["prefix_overview"] = ripestat_prefix_overview(prefix)
+    time.sleep(0.3)
 
-    time.sleep(0.5)
+    # RPKI validation if we know the origin ASN
+    asns = resultados["network_info"].get("asns", [])
+    if asns:
+        containing_prefix = resultados["network_info"].get("prefix", prefix)
+        rpki = ripestat_rpki_validation(f"AS{asns[0]}", containing_prefix)
+        resultados["rpki"] = rpki
+        time.sleep(0.3)
 
-    # Network info (holder, ASN)
-    try:
-        r = requests.get(f"{base}/network-info/data.json",
-                         params={"resource": prefix}, timeout=15)
-        r.raise_for_status()
-        data = r.json().get("data", {})
-        resultados["network_info"] = {
-            "asns": data.get("asns", []),
-            "prefix": data.get("prefix"),
-        }
-    except requests.RequestException as e:
-        print(f"  [!] RIPE Stat network error para '{prefix}': {e}")
+    if include_hierarchy:
+        resultados["hierarchy"] = ripestat_address_space_hierarchy(prefix)
+        time.sleep(0.3)
+
+    if include_looking_glass:
+        resultados["looking_glass"] = ripestat_looking_glass(prefix)
+        time.sleep(0.3)
 
     return resultados
+
+
+# ── RIPE STAT — combined ASN analysis ────────────────────────────────────────
+def buscar_ripestat_asn(asn: str, include_neighbours_history: bool = False,
+                         include_routing_consistency: bool = False):
+    """Comprehensive RIPE Stat analysis for an ASN.
+
+    Always queries: as-overview, announced-prefixes, asn-neighbours, geo-by-asn.
+    Optionally: asn-neighbours-history, prefix-routing-consistency.
+    """
+    asn_str = asn if asn.upper().startswith("AS") else f"AS{asn}"
+    resultados = {}
+
+    resultados["overview"] = ripestat_as_overview(asn_str)
+    time.sleep(0.3)
+
+    resultados["announced_prefixes"] = ripestat_announced_prefixes(asn_str)
+    time.sleep(0.3)
+
+    resultados["neighbours"] = ripestat_asn_neighbours(asn_str)
+    time.sleep(0.3)
+
+    resultados["geo_distribution"] = ripestat_geo_by_asn(asn_str)
+    time.sleep(0.3)
+
+    if include_neighbours_history:
+        resultados["neighbours_history"] = ripestat_asn_neighbours_history(asn_str)
+        time.sleep(0.3)
+
+    if include_routing_consistency:
+        resultados["routing_consistency"] = ripestat_prefix_routing_consistency(asn_str)
+        time.sleep(0.3)
+
+    return resultados
+
+
+# ── ORG → ASN → PREFIX chaining ──────────────────────────────────────────────
+def ripe_chain_org_to_prefixes(org_queries: list, delay: float = 0.8):
+    """Full chain: org name → org handle → inetnums + ASNs → routes + announced prefixes.
+
+    Takes a list of org search queries (e.g. ["AEAT", "Agencia Tributaria"]).
+    Returns a comprehensive mapping of the organization's IP infrastructure.
+    """
+    chain = {
+        "org_handles": [],
+        "inetnums": [],
+        "inet6nums": [],
+        "autnums": [],
+        "routes": [],
+        "announced_prefixes": [],
+        "maintainers": set(),
+    }
+
+    # Step 1: Search for organisation objects
+    seen_orgs = set()
+    for query in org_queries:
+        orgs = buscar_ripe(query, type_filter="organisation", flags="no-referenced", delay=delay)
+        for org in orgs:
+            org_id = org.get("org") or org.get("organisation")
+            if org_id and org_id not in seen_orgs:
+                seen_orgs.add(org_id)
+                chain["org_handles"].append(org)
+
+    # Also extract org handles from inetnum/aut-num results
+    general = buscar_ripe(org_queries[0] if org_queries else "", delay=delay)
+    for obj in general:
+        org_id = obj.get("org")
+        if org_id and org_id not in seen_orgs:
+            seen_orgs.add(org_id)
+            # Look up the org object
+            org_detail = ripe_org_lookup(org_id, delay=delay)
+            if org_detail:
+                chain["org_handles"].append(org_detail)
+
+    # Step 2: For each org, find all resources via inverse lookup
+    seen_inetnums = set()
+    seen_autnums = set()
+    for org_id in seen_orgs:
+        resources = ripe_find_org_resources(org_id, delay=delay)
+        for inet in resources["inetnums"]:
+            key = inet.get("inetnum", "")
+            if key and key not in seen_inetnums:
+                seen_inetnums.add(key)
+                chain["inetnums"].append(inet)
+        for inet6 in resources["inet6nums"]:
+            key = inet6.get("inet6num", "")
+            if key not in seen_inetnums:
+                seen_inetnums.add(key)
+                chain["inet6nums"].append(inet6)
+        for autnum in resources["autnums"]:
+            asn = autnum.get("aut-num", "")
+            if asn and asn not in seen_autnums:
+                seen_autnums.add(asn)
+                chain["autnums"].append(autnum)
+            # Collect maintainers for later
+            mnt = autnum.get("mnt-by")
+            if mnt:
+                if isinstance(mnt, list):
+                    chain["maintainers"].update(mnt)
+                else:
+                    chain["maintainers"].add(mnt)
+
+    # Step 3: For each ASN, find route objects and announced prefixes
+    for asn in seen_autnums:
+        routes = ripe_find_routes_for_asn(asn, delay=delay)
+        chain["routes"].extend(routes.get("route", []))
+        chain["routes"].extend(routes.get("route6", []))
+
+        announced = ripestat_announced_prefixes(asn)
+        for p in announced:
+            p["origin_asn"] = asn
+        chain["announced_prefixes"].extend(announced)
+        time.sleep(0.3)
+
+    # Convert set to list for JSON serialization
+    chain["maintainers"] = sorted(chain["maintainers"])
+
+    return chain
 # ── CRT.SH (Certificate Transparency) ────────────────────────────────────────
 def buscar_crtsh(domain: str):
     """Busca subdominios en Certificate Transparency logs via crt.sh."""
@@ -922,6 +1513,7 @@ TARGETS = {
     "DGT": {
         "domains": ["dgt.es", "dgt.gob.es"],
         "ripe_queries": ["DGT"],
+        "ripe_org_queries": ["DGT", "Direccion General de Trafico"],
         "bgpview_queries": ["Direccion General de Trafico", "DGT"],
         "shodan_queries": [
             'org:"Direccion General de Trafico"',
@@ -932,6 +1524,7 @@ TARGETS = {
     "Indra": {
         "domains": ["indracompany.com", "indra.es", "minsait.com"],
         "ripe_queries": ["Indra"],
+        "ripe_org_queries": ["Indra", "Indra Sistemas"],
         "bgpview_queries": ["Indra Sistemas"],
         "shodan_queries": [
             'org:"Indra Sistemas" country:ES',
@@ -942,6 +1535,7 @@ TARGETS = {
     "AEAT": {
         "domains": ["agenciatributaria.es", "agenciatributaria.gob.es", "aeat.es"],
         "ripe_queries": ["AEAT"],
+        "ripe_org_queries": ["AEAT", "Agencia Tributaria"],
         "bgpview_queries": ["Agencia Tributaria"],
         "shodan_queries": [
             'hostname:".aeat.es"',
@@ -954,7 +1548,7 @@ if __name__ == "__main__":
     import sys
 
     parser = argparse.ArgumentParser(
-        description="OSINT reconnaissance: RIPE, BGPView, crt.sh, DNS, RIPE Stat, VirusTotal, SecurityTrails, Shodan"
+        description="OSINT reconnaissance: RIPE (DB+Stat), BGPView, crt.sh, DNS, VirusTotal, SecurityTrails, Shodan"
     )
     parser.add_argument("--shodan-key", default=None)
     parser.add_argument("--vt-key", default=None, help="VirusTotal API key (free tier: 4 req/min)")
@@ -966,6 +1560,11 @@ if __name__ == "__main__":
     parser.add_argument("--skip-wayback", action="store_true", help="Saltar Wayback Machine")
     parser.add_argument("--skip-portscan", action="store_true", help="Saltar port scanning")
     parser.add_argument("--skip-san", action="store_true", help="Saltar TLS SAN analysis")
+    parser.add_argument("--skip-ripe-chain", action="store_true", help="Saltar RIPE org→ASN→prefix chaining")
+    parser.add_argument("--ripe-hierarchy", action="store_true", help="Include RIPE address-space-hierarchy")
+    parser.add_argument("--ripe-looking-glass", action="store_true", help="Include RIPE looking glass data")
+    parser.add_argument("--ripe-asn-history", action="store_true", help="Include ASN neighbour history")
+    parser.add_argument("--ripe-routing-consistency", action="store_true", help="Include prefix routing consistency")
     parser.add_argument("--san-timeout", type=float, default=5.0, help="TLS connect timeout for SAN extraction (default: 5)")
     parser.add_argument("--san-ports", default="443,8443,9443", help="TLS ports for SAN probing (default: 443,8443,9443)")
     parser.add_argument("--scan-timeout", type=float, default=2.0, help="Timeout por puerto en segundos (default: 2)")
@@ -987,20 +1586,75 @@ if __name__ == "__main__":
         print(f"{'='*60}")
 
         todos[nombre] = {
-            "ripe": [], "bgpview": [], "shodan": [],
-            "crtsh": [], "dns": {}, "ripestat": {}, "reverse_dns": [],
-            "wayback": {}, "portscan": {},
+            "ripe": [], "ripe_chain": {}, "bgpview": [], "shodan": [],
+            "crtsh": [], "dns": {}, "ripestat_prefixes": {}, "ripestat_asns": {},
+            "reverse_dns": [], "wayback": {}, "portscan": {},
             "virustotal": {}, "securitytrails": {}, "tls_san": {},
         }
 
-        # ── RIPE NCC ──
-        print("\n[RIPE NCC]")
+        # ── RIPE NCC DB — basic search ──
+        print("\n[RIPE NCC — DB Search]")
         for q in config["ripe_queries"]:
             print(f"  Query: {q}")
             res = buscar_ripe(q)
             todos[nombre]["ripe"].extend(res)
             for r in res:
-                print(f"    {r.get('inetnum', r.get('aut-num', '?'))} - {r.get('netname', '?')} ({r.get('country', '?')})")
+                print(f"    [{r.get('_type', '?')}] {r.get('inetnum', r.get('inet6num', r.get('aut-num', '?')))} - {r.get('netname', '?')} ({r.get('country', '?')})")
+
+        # ── RIPE NCC DB — org→ASN→prefix chain ──
+        if not args.skip_ripe_chain:
+            print("\n[RIPE NCC — Org→ASN→Prefix Chain]")
+            org_queries = config.get("ripe_org_queries", config["ripe_queries"])
+            chain = ripe_chain_org_to_prefixes(org_queries)
+            todos[nombre]["ripe_chain"] = chain
+
+            if chain["org_handles"]:
+                print(f"  Org handles found: {len(chain['org_handles'])}")
+                for org in chain["org_handles"]:
+                    org_id = org.get("org") or org.get("organisation") or "?"
+                    org_name = org.get("org-name", org.get("descr", "?"))
+                    print(f"    {org_id}: {org_name}")
+
+            if chain["inetnums"]:
+                print(f"  IPv4 ranges (inverse org lookup): {len(chain['inetnums'])}")
+                for inet in chain["inetnums"][:20]:
+                    print(f"    {inet.get('inetnum', '?')} - {inet.get('netname', '?')} ({inet.get('country', '?')})")
+                if len(chain["inetnums"]) > 20:
+                    print(f"    ... y {len(chain['inetnums']) - 20} más")
+
+            if chain["inet6nums"]:
+                print(f"  IPv6 ranges: {len(chain['inet6nums'])}")
+                for inet6 in chain["inet6nums"][:10]:
+                    print(f"    {inet6.get('inet6num', '?')} - {inet6.get('netname', '?')}")
+
+            if chain["autnums"]:
+                print(f"  Autonomous Systems: {len(chain['autnums'])}")
+                for asn in chain["autnums"]:
+                    print(f"    {asn.get('aut-num', '?')} - {asn.get('descr', asn.get('org-name', '?'))}")
+
+            if chain["routes"]:
+                print(f"  Route objects: {len(chain['routes'])}")
+                for route in chain["routes"][:20]:
+                    print(f"    {route.get('route', route.get('route6', '?'))} origin {route.get('origin', '?')}")
+                if len(chain["routes"]) > 20:
+                    print(f"    ... y {len(chain['routes']) - 20} más")
+
+            if chain["announced_prefixes"]:
+                print(f"  Announced prefixes (BGP): {len(chain['announced_prefixes'])}")
+                for p in chain["announced_prefixes"][:20]:
+                    print(f"    {p.get('prefix', '?')} (origin {p.get('origin_asn', '?')})")
+                if len(chain["announced_prefixes"]) > 20:
+                    print(f"    ... y {len(chain['announced_prefixes']) - 20} más")
+
+            if chain["maintainers"]:
+                print(f"  Maintainers: {', '.join(chain['maintainers'])}")
+
+            # Merge chain results into the basic ripe list for downstream use
+            for inet in chain["inetnums"]:
+                if inet not in todos[nombre]["ripe"]:
+                    todos[nombre]["ripe"].append(inet)
+        else:
+            print("\n[RIPE NCC — Org Chain] Saltado (--skip-ripe-chain)")
 
         # ── crt.sh (Certificate Transparency) ──
         print("\n[crt.sh - Certificate Transparency]")
@@ -1106,24 +1760,94 @@ if __name__ == "__main__":
         else:
             print("\n[SecurityTrails] Saltado (sin --st-key)")
 
-        # ── RIPE Stat ──
+        # ── RIPE Stat — prefix analysis ──
         if not args.skip_ripestat:
-            print("\n[RIPE Stat]")
+            print("\n[RIPE Stat — Prefix Analysis]")
             # Use first IP from each RIPE range
-            for entry in todos[nombre]["ripe"][:5]:  # Limitar para no abusar
+            seen_prefixes = set()
+            for entry in todos[nombre]["ripe"][:10]:
                 inetnum = entry.get("inetnum", "")
                 if not inetnum:
                     continue
                 first_ip = inetnum.split(" - ")[0].strip()
+                if first_ip in seen_prefixes:
+                    continue
+                seen_prefixes.add(first_ip)
                 print(f"  Prefix: {first_ip}")
-                stat = buscar_ripestat_prefix(first_ip)
-                todos[nombre]["ripestat"][inetnum] = stat
+                stat = buscar_ripestat_prefix(
+                    first_ip,
+                    include_hierarchy=args.ripe_hierarchy,
+                    include_looking_glass=args.ripe_looking_glass,
+                )
+                todos[nombre]["ripestat_prefixes"][inetnum] = stat
                 if stat.get("routing"):
-                    print(f"    Routing: {stat['routing'].get('status')} (visibility: {stat['routing'].get('visibility')})")
+                    vis = stat["routing"].get("visibility_v4") or stat["routing"].get("visibility_v6")
+                    print(f"    Routing: {stat['routing'].get('status')} (visibility: {vis})")
                 if stat.get("abuse_contacts"):
                     print(f"    Abuse: {', '.join(stat['abuse_contacts'])}")
-                if stat.get("network_info", {}).get("asns"):
-                    print(f"    ASNs: {', '.join(str(a) for a in stat['network_info']['asns'])}")
+                ni = stat.get("network_info", {})
+                if ni.get("asns"):
+                    print(f"    ASNs: {', '.join(str(a) for a in ni['asns'])}")
+                    print(f"    Containing prefix: {ni.get('prefix', '?')}")
+                po = stat.get("prefix_overview", {})
+                if po.get("asns"):
+                    for a in po["asns"]:
+                        print(f"    Origin: AS{a.get('asn')} ({a.get('holder', '?')})")
+                rpki = stat.get("rpki", {})
+                if rpki.get("status"):
+                    print(f"    RPKI: {rpki['status']}")
+                if stat.get("hierarchy"):
+                    h = stat["hierarchy"]
+                    print(f"    Hierarchy: {len(h.get('less_specific', []))} parents, {len(h.get('more_specific', []))} children")
+
+            # ── RIPE Stat — ASN analysis ──
+            print("\n[RIPE Stat — ASN Analysis]")
+            chain = todos[nombre].get("ripe_chain", {})
+            discovered_asns = set()
+
+            # Collect ASNs from chain + ripestat prefix results
+            for autnum in chain.get("autnums", []):
+                asn = autnum.get("aut-num", "")
+                if asn:
+                    discovered_asns.add(asn)
+            for stat in todos[nombre]["ripestat_prefixes"].values():
+                for a in stat.get("network_info", {}).get("asns", []):
+                    discovered_asns.add(f"AS{a}" if not str(a).upper().startswith("AS") else str(a))
+
+            for asn in sorted(discovered_asns)[:10]:
+                print(f"  ASN: {asn}")
+                asn_stat = buscar_ripestat_asn(
+                    asn,
+                    include_neighbours_history=args.ripe_asn_history,
+                    include_routing_consistency=args.ripe_routing_consistency,
+                )
+                todos[nombre]["ripestat_asns"][asn] = asn_stat
+                ov = asn_stat.get("overview", {})
+                if ov:
+                    print(f"    Holder: {ov.get('holder', '?')} (announced: {ov.get('announced')})")
+                prefixes = asn_stat.get("announced_prefixes", [])
+                if prefixes:
+                    print(f"    Announced prefixes: {len(prefixes)}")
+                    for p in prefixes[:10]:
+                        print(f"      {p.get('prefix', '?')}")
+                    if len(prefixes) > 10:
+                        print(f"      ... y {len(prefixes) - 10} más")
+                nb = asn_stat.get("neighbours", {})
+                if nb.get("neighbours"):
+                    print(f"    Neighbours: {len(nb['neighbours'])} ({nb.get('neighbour_count', {})})")
+                    for n in nb["neighbours"][:10]:
+                        print(f"      AS{n.get('asn')} ({n.get('type', '?')}, power={n.get('power', '?')})")
+                    if len(nb["neighbours"]) > 10:
+                        print(f"      ... y {len(nb['neighbours']) - 10} más")
+                geo = asn_stat.get("geo_distribution", [])
+                if geo:
+                    countries = set(g.get("country") for g in geo if g.get("country"))
+                    print(f"    Geo distribution: {len(geo)} prefixes across {len(countries)} countries: {', '.join(sorted(countries))}")
+                rc = asn_stat.get("routing_consistency", [])
+                if rc:
+                    in_both = sum(1 for r in rc if r.get("in_whois") and r.get("in_bgp"))
+                    bgp_only = sum(1 for r in rc if r.get("in_bgp") and not r.get("in_whois"))
+                    print(f"    Routing consistency: {in_both} registered+announced, {bgp_only} BGP-only")
 
         # ── Reverse DNS ──
         if not args.skip_rdns:
@@ -1267,9 +1991,17 @@ if __name__ == "__main__":
     for nombre, data in todos.items():
         print(f"\n{nombre}:")
         print(f"  RIPE rangos:    {len(data['ripe'])}")
+        chain = data.get("ripe_chain", {})
+        if chain:
+            print(f"  RIPE chain:     {len(chain.get('org_handles', []))} orgs, "
+                  f"{len(chain.get('inetnums', []))} inetnums, "
+                  f"{len(chain.get('autnums', []))} ASNs, "
+                  f"{len(chain.get('routes', []))} routes, "
+                  f"{len(chain.get('announced_prefixes', []))} announced")
         print(f"  Subdominios CT: {len(set(c['subdomain'] for c in data['crtsh']))}")
         print(f"  DNS dominios:   {len(data['dns'])}")
-        print(f"  RIPE Stat:      {len(data['ripestat'])} prefijos analizados")
+        print(f"  RIPE Stat pfx:  {len(data.get('ripestat_prefixes', {}))} prefijos analizados")
+        print(f"  RIPE Stat ASN:  {len(data.get('ripestat_asns', {}))} ASNs analizados")
         print(f"  Reverse DNS:    {len(data['reverse_dns'])} PTRs")
         wb_urls = sum(d.get("total_urls", 0) for d in data["wayback"].values())
         wb_rutas = sum(len(d.get("rutas_interesantes", [])) for d in data["wayback"].values())
