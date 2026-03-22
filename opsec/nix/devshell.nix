@@ -5,6 +5,8 @@ pkgs.mkShell {
       with ps; [
         requests
         shodan
+        scapy
       ]))
+    pkgs.netcat-gnu
   ];
 }

@@ -232,6 +232,151 @@ def consultar_dns(domain: str):
 
     registros["security_policies"] = seguridad
     return registros
+# ── PORT SCANNING (netcat / socket fallback) ──────────────────────────────────
+PUERTOS_COMUNES = [
+    21, 22, 23, 25, 53, 80, 110, 111, 135, 139, 143, 443, 445, 465, 587,
+    993, 995, 1433, 1521, 2049, 3306, 3389, 5432, 5900, 6379, 8000, 8080,
+    8443, 8888, 9090, 9200, 9443, 27017,
+]
+
+def _nc_disponible():
+    """Comprueba si netcat está disponible."""
+    import subprocess, shutil
+    return shutil.which("nc") is not None
+
+def _scan_nc(ip: str, puerto: int, timeout: float = 2.0):
+    """Escanea un puerto con netcat (nc -zw)."""
+    import subprocess
+    try:
+        result = subprocess.run(
+            ["nc", "-z", "-w", str(int(timeout)), ip, str(puerto)],
+            capture_output=True, timeout=timeout + 1,
+        )
+        return result.returncode == 0
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+        return False
+
+def _scan_socket(ip: str, puerto: int, timeout: float = 2.0):
+    """Escanea un puerto con socket (fallback si nc no está)."""
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.settimeout(timeout)
+    try:
+        sock.connect((ip, puerto))
+        sock.close()
+        return True
+    except (socket.timeout, ConnectionRefusedError, OSError):
+        sock.close()
+        return False
+
+def _grab_banner(ip: str, puerto: int, timeout: float = 3.0):
+    """Intenta obtener el banner del servicio."""
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.settimeout(timeout)
+    try:
+        sock.connect((ip, puerto))
+        # Para HTTP, enviar request mínimo
+        if puerto in (80, 8080, 8000, 8888, 9090):
+            sock.sendall(f"HEAD / HTTP/1.0\r\nHost: {ip}\r\n\r\n".encode())
+        elif puerto in (443, 8443, 9443):
+            sock.close()
+            return _grab_https_banner(ip, puerto, timeout)
+        else:
+            # Muchos servicios envían banner al conectar (SSH, FTP, SMTP...)
+            sock.sendall(b"\r\n")
+        data = sock.recv(1024)
+        sock.close()
+        return data.decode("utf-8", errors="replace").strip()[:200]
+    except (socket.timeout, ConnectionRefusedError, OSError):
+        sock.close()
+        return None
+
+def _grab_https_banner(ip: str, puerto: int, timeout: float = 3.0):
+    """Obtiene info del certificado SSL/TLS."""
+    import ssl
+    ctx = ssl.create_default_context()
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+    try:
+        with socket.create_connection((ip, puerto), timeout=timeout) as raw:
+            with ctx.wrap_socket(raw, server_hostname=ip) as ssock:
+                cert = ssock.getpeercert(binary_form=False)
+                if cert:
+                    subject = dict(x[0] for x in cert.get("subject", []))
+                    issuer = dict(x[0] for x in cert.get("issuer", []))
+                    return f"CN={subject.get('commonName','?')} Issuer={issuer.get('organizationName','?')}"
+                # If no parsed cert, try cipher info
+                cipher = ssock.cipher()
+                if cipher:
+                    return f"TLS {cipher[1]} {cipher[0]}"
+    except Exception:
+        pass
+    return None
+
+def _scan_scapy_syn(ip: str, puertos: list, timeout: float = 2.0):
+    """SYN scan con scapy (half-open, más sigiloso). Requiere root."""
+    try:
+        from scapy.all import IP, TCP, sr, conf
+        conf.verb = 0
+    except ImportError:
+        return None  # scapy no disponible
+
+    try:
+        pkt = IP(dst=ip) / TCP(dport=puertos, flags="S")
+        answered, _ = sr(pkt, timeout=timeout, verbose=0)
+    except PermissionError:
+        return None  # necesita root
+    except Exception:
+        return None
+
+    abiertos = []
+    for sent, received in answered:
+        if received.haslayer(TCP) and received[TCP].flags == 0x12:  # SYN-ACK
+            abiertos.append(received[TCP].sport)
+    return abiertos
+
+def escanear_puertos(ip: str, puertos: list = None, timeout: float = 2.0,
+                     banner: bool = True, metodo_forzado: str = None):
+    """Escanea puertos en una IP.
+
+    Orden de preferencia: scapy SYN (si root) > netcat > socket.
+    metodo_forzado: 'scapy', 'nc', 'socket' para forzar backend.
+    """
+    if puertos is None:
+        puertos = PUERTOS_COMUNES
+
+    # Intentar scapy SYN scan primero (más rápido, escanea todos los puertos en paralelo)
+    if metodo_forzado in (None, "scapy"):
+        syn_result = _scan_scapy_syn(ip, puertos, timeout)
+        if syn_result is not None:
+            abiertos = []
+            for puerto in syn_result:
+                entry = {"puerto": puerto, "metodo": "scapy-syn"}
+                if banner:
+                    b = _grab_banner(ip, puerto, timeout + 1)
+                    if b:
+                        entry["banner"] = b
+                abiertos.append(entry)
+            return abiertos
+
+    # Fallback: nc o socket (secuencial)
+    if metodo_forzado == "nc" or (metodo_forzado is None and _nc_disponible()):
+        scan_fn = _scan_nc
+        metodo = "nc"
+    else:
+        scan_fn = _scan_socket
+        metodo = "socket"
+
+    abiertos = []
+    for puerto in puertos:
+        if scan_fn(ip, puerto, timeout):
+            entry = {"puerto": puerto, "metodo": metodo}
+            if banner:
+                b = _grab_banner(ip, puerto, timeout + 1)
+                if b:
+                    entry["banner"] = b
+            abiertos.append(entry)
+
+    return abiertos
 # ── WAYBACK MACHINE (CDX API) ─────────────────────────────────────────────────
 def buscar_wayback(domain: str, max_results: int = 500):
     """Consulta el CDX API de Wayback Machine para un dominio.
@@ -479,7 +624,16 @@ if __name__ == "__main__":
     parser.add_argument("--skip-rdns", action="store_true", help="Saltar reverse DNS (lento)")
     parser.add_argument("--skip-ripestat", action="store_true", help="Saltar RIPE Stat (rate limited)")
     parser.add_argument("--skip-wayback", action="store_true", help="Saltar Wayback Machine")
+    parser.add_argument("--skip-portscan", action="store_true", help="Saltar port scanning")
+    parser.add_argument("--scan-timeout", type=float, default=2.0, help="Timeout por puerto en segundos (default: 2)")
+    parser.add_argument("--scan-ports", default=None, help="Puertos a escanear (ej: '22,80,443,8080')")
+    parser.add_argument("--scan-method", choices=["auto", "scapy", "nc", "socket"], default="auto",
+                        help="Método de escaneo (default: auto = scapy > nc > socket)")
     args = parser.parse_args()
+
+    if args.scan_ports:
+        PUERTOS_COMUNES.clear()
+        PUERTOS_COMUNES.extend(int(p.strip()) for p in args.scan_ports.split(","))
 
     targets = TARGETS if args.target == "all" else {args.target: TARGETS[args.target]}
     todos = {}
@@ -492,7 +646,7 @@ if __name__ == "__main__":
         todos[nombre] = {
             "ripe": [], "bgpview": [], "shodan": [],
             "crtsh": [], "dns": {}, "ripestat": {}, "reverse_dns": [],
-            "wayback": {},
+            "wayback": {}, "portscan": {},
         }
 
         # ── RIPE NCC ──
@@ -592,6 +746,30 @@ if __name__ == "__main__":
                 for p in ptrs:
                     print(f"    {p['ip']} -> {p['ptr']}")
 
+        # ── Port Scanning ──
+        if not args.skip_portscan:
+            print("\n[Port Scan]")
+            # Scan first IP of each RIPE range + resolved A records from DNS
+            scan_ips = set()
+            for entry in todos[nombre]["ripe"][:5]:
+                inetnum = entry.get("inetnum", "")
+                if inetnum:
+                    scan_ips.add(inetnum.split(" - ")[0].strip())
+            for domain, dns_info in todos[nombre]["dns"].items():
+                for ip in dns_info.get("A", [])[:3]:
+                    scan_ips.add(ip)
+            for ip in sorted(scan_ips):
+                print(f"  IP: {ip}")
+                metodo = None if args.scan_method == "auto" else args.scan_method
+                abiertos = escanear_puertos(ip, timeout=args.scan_timeout, metodo_forzado=metodo)
+                if abiertos:
+                    todos[nombre]["portscan"][ip] = abiertos
+                    for p in abiertos:
+                        banner_str = f" | {p['banner'][:80]}" if p.get("banner") else ""
+                        print(f"    {p['puerto']}/tcp OPEN ({p['metodo']}){banner_str}")
+                else:
+                    print(f"    Sin puertos abiertos (o filtrados)")
+
         # ── BGPView ──
         print("\n[BGPView]")
         for q in config["bgpview_queries"]:
@@ -635,5 +813,7 @@ if __name__ == "__main__":
         wb_urls = sum(d.get("total_urls", 0) for d in data["wayback"].values())
         wb_rutas = sum(len(d.get("rutas_interesantes", [])) for d in data["wayback"].values())
         print(f"  Wayback URLs:   {wb_urls} ({wb_rutas} rutas interesantes)")
+        ps_total = sum(len(v) for v in data["portscan"].values())
+        print(f"  Puertos abiertos: {ps_total} en {len(data['portscan'])} IPs")
         print(f"  BGPView ASNs:   {len(data['bgpview'])}")
         print(f"  Shodan hosts:   {len(data['shodan'])}")
