@@ -232,6 +232,118 @@ def consultar_dns(domain: str):
 
     registros["security_policies"] = seguridad
     return registros
+# ── WAYBACK MACHINE (CDX API) ─────────────────────────────────────────────────
+def buscar_wayback(domain: str, max_results: int = 500):
+    """Consulta el CDX API de Wayback Machine para un dominio.
+
+    Devuelve URLs históricas, timestamps, status codes y MIME types.
+    Útil para encontrar endpoints eliminados, paneles de admin, APIs antiguas.
+    """
+    url = "https://web.archive.org/cdx/search/cdx"
+    params = {
+        "url": f"*.{domain}/*",
+        "output": "json",
+        "fl": "timestamp,original,mimetype,statuscode,digest",
+        "collapse": "urlkey",  # dedup por URL normalizada
+        "limit": max_results,
+        "filter": "statuscode:200",
+    }
+
+    try:
+        r = requests.get(url, params=params, timeout=30)
+        r.raise_for_status()
+    except requests.RequestException as e:
+        print(f"  [!] Wayback error para '{domain}': {e}")
+        return {}
+
+    try:
+        rows = r.json()
+    except json.JSONDecodeError:
+        print(f"  [!] Wayback respuesta inválida para '{domain}'")
+        return {}
+
+    if not rows or len(rows) < 2:
+        return {"urls": [], "stats": {}}
+
+    header = rows[0]
+    entries = rows[1:]
+
+    urls = []
+    subdominios = set()
+    mimetypes = defaultdict(int)
+    extensiones = defaultdict(int)
+    rutas_interesantes = []
+
+    RUTAS_SENSIBLES = {
+        "admin", "login", "api", "console", "dashboard", "config",
+        "backup", "staging", "test", "debug", "internal", "portal",
+        "phpmyadmin", "wp-admin", "jenkins", "gitlab", "grafana",
+        "kibana", "swagger", "graphql", ".env", ".git", "actuator",
+        "server-status", "server-info", "web.config", "robots.txt",
+        "sitemap.xml", ".well-known",
+    }
+
+    for row in entries:
+        timestamp = row[0]
+        original_url = row[1]
+        mimetype = row[2]
+        statuscode = row[3]
+        digest = row[4]
+
+        urls.append({
+            "timestamp": timestamp,
+            "url": original_url,
+            "mimetype": mimetype,
+            "status": statuscode,
+        })
+
+        # Extraer subdominio
+        try:
+            from urllib.parse import urlparse
+            parsed = urlparse(original_url if "://" in original_url else f"http://{original_url}")
+            if parsed.hostname:
+                subdominios.add(parsed.hostname.lower())
+            path_lower = parsed.path.lower()
+        except Exception:
+            path_lower = original_url.lower()
+
+        mimetypes[mimetype] += 1
+
+        # Extensión del archivo
+        if "." in original_url.split("/")[-1]:
+            ext = original_url.split(".")[-1].split("?")[0].lower()[:10]
+            extensiones[ext] += 1
+
+        # Rutas interesantes
+        for ruta in RUTAS_SENSIBLES:
+            if ruta in path_lower:
+                rutas_interesantes.append({
+                    "url": original_url,
+                    "match": ruta,
+                    "timestamp": timestamp,
+                })
+                break
+
+    # Dedup rutas interesantes por URL
+    seen = set()
+    rutas_dedup = []
+    for r in rutas_interesantes:
+        if r["url"] not in seen:
+            seen.add(r["url"])
+            rutas_dedup.append(r)
+
+    return {
+        "total_urls": len(urls),
+        "rango_temporal": {
+            "primera_captura": entries[0][0] if entries else None,
+            "ultima_captura": entries[-1][0] if entries else None,
+        },
+        "subdominios_historicos": sorted(subdominios),
+        "mimetypes": dict(mimetypes),
+        "extensiones_top": dict(sorted(extensiones.items(), key=lambda x: -x[1])[:20]),
+        "rutas_interesantes": rutas_dedup,
+        "urls": urls,
+    }
 # ── BGPVIEW (alternativa gratuita a Shodan para ASNs) ─────────────────────────
 def buscar_bgpview_asn(asn: str):
     """Obtiene prefijos anunciados por un ASN. BGPView es gratuito y sin key."""
@@ -366,6 +478,7 @@ if __name__ == "__main__":
     parser.add_argument("--output", default="resultados.json")
     parser.add_argument("--skip-rdns", action="store_true", help="Saltar reverse DNS (lento)")
     parser.add_argument("--skip-ripestat", action="store_true", help="Saltar RIPE Stat (rate limited)")
+    parser.add_argument("--skip-wayback", action="store_true", help="Saltar Wayback Machine")
     args = parser.parse_args()
 
     targets = TARGETS if args.target == "all" else {args.target: TARGETS[args.target]}
@@ -379,6 +492,7 @@ if __name__ == "__main__":
         todos[nombre] = {
             "ripe": [], "bgpview": [], "shodan": [],
             "crtsh": [], "dns": {}, "ripestat": {}, "reverse_dns": [],
+            "wayback": {},
         }
 
         # ── RIPE NCC ──
@@ -417,6 +531,34 @@ if __name__ == "__main__":
                 else:
                     for v in (valores if isinstance(valores, list) else [valores]):
                         print(f"    {tipo}: {v}")
+
+        # ── Wayback Machine ──
+        if not args.skip_wayback:
+            print("\n[Wayback Machine]")
+            for domain in config.get("domains", []):
+                print(f"  Dominio: {domain}")
+                wb = buscar_wayback(domain)
+                todos[nombre]["wayback"][domain] = wb
+                if wb.get("total_urls"):
+                    rango = wb.get("rango_temporal", {})
+                    print(f"    URLs únicas: {wb['total_urls']}")
+                    print(f"    Rango: {rango.get('primera_captura', '?')} - {rango.get('ultima_captura', '?')}")
+                    print(f"    Subdominios históricos: {len(wb.get('subdominios_historicos', []))}")
+                    for s in wb.get("subdominios_historicos", [])[:10]:
+                        print(f"      {s}")
+                    if len(wb.get("subdominios_historicos", [])) > 10:
+                        print(f"      ... y {len(wb['subdominios_historicos']) - 10} más")
+                    print(f"    Extensiones top: {wb.get('extensiones_top', {})}")
+                    rutas = wb.get("rutas_interesantes", [])
+                    if rutas:
+                        print(f"    Rutas interesantes ({len(rutas)}):")
+                        for ri in rutas[:15]:
+                            print(f"      [{ri['match']}] {ri['url']} ({ri['timestamp']})")
+                        if len(rutas) > 15:
+                            print(f"      ... y {len(rutas) - 15} más")
+                else:
+                    print(f"    Sin resultados")
+                time.sleep(1)
 
         # ── RIPE Stat ──
         if not args.skip_ripestat:
@@ -490,5 +632,8 @@ if __name__ == "__main__":
         print(f"  DNS dominios:   {len(data['dns'])}")
         print(f"  RIPE Stat:      {len(data['ripestat'])} prefijos analizados")
         print(f"  Reverse DNS:    {len(data['reverse_dns'])} PTRs")
+        wb_urls = sum(d.get("total_urls", 0) for d in data["wayback"].values())
+        wb_rutas = sum(len(d.get("rutas_interesantes", [])) for d in data["wayback"].values())
+        print(f"  Wayback URLs:   {wb_urls} ({wb_rutas} rutas interesantes)")
         print(f"  BGPView ASNs:   {len(data['bgpview'])}")
         print(f"  Shodan hosts:   {len(data['shodan'])}")
