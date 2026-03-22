@@ -535,6 +535,140 @@ def buscar_bgpview_org(nombre: str):
             "country": asn.get("country_code"),
         })
     return asns
+# ── VIRUSTOTAL (passive DNS / subdomains) ─────────────────────────────────────
+def buscar_virustotal(domain: str, api_key: str, max_results: int = 200):
+    """Consulta VirusTotal para subdominios via relación 'subdomains'.
+
+    Free tier: 4 requests/min, 500/day. No necesita cuenta premium para subdominios.
+    Devuelve subdominios + últimas resoluciones DNS pasivas.
+    """
+    url = f"https://www.virustotal.com/api/v3/domains/{domain}/subdomains"
+    headers = {"x-apikey": api_key}
+    params = {"limit": min(max_results, 40)}  # VT pages at max 40
+
+    subdominios = []
+    cursor = None
+
+    while len(subdominios) < max_results:
+        if cursor:
+            params["cursor"] = cursor
+
+        try:
+            r = requests.get(url, headers=headers, params=params, timeout=20)
+            if r.status_code == 429:
+                print("  [!] VirusTotal rate limit — esperando 60s...")
+                time.sleep(60)
+                continue
+            r.raise_for_status()
+        except requests.RequestException as e:
+            print(f"  [!] VirusTotal error para '{domain}': {e}")
+            break
+
+        data = r.json()
+
+        for item in data.get("data", []):
+            sub_id = item.get("id", "")
+            attrs = item.get("attributes", {})
+            last_dns = attrs.get("last_dns_records", [])
+
+            entry = {
+                "subdomain": sub_id,
+                "last_modification_date": attrs.get("last_modification_date"),
+                "dns_records": [
+                    {"type": rec.get("type"), "value": rec.get("value")}
+                    for rec in last_dns[:10]
+                ],
+            }
+            subdominios.append(entry)
+
+        cursor = data.get("meta", {}).get("cursor")
+        if not cursor or not data.get("data"):
+            break
+
+        time.sleep(15)  # Respetar rate limit free tier (4 req/min)
+
+    # También consultar resoluciones DNS pasivas (IPs históricas)
+    resoluciones = []
+    res_url = f"https://www.virustotal.com/api/v3/domains/{domain}/resolutions"
+    try:
+        r = requests.get(res_url, headers=headers, params={"limit": 40}, timeout=20)
+        if r.status_code != 429:
+            r.raise_for_status()
+            for item in r.json().get("data", []):
+                attrs = item.get("attributes", {})
+                resoluciones.append({
+                    "ip": attrs.get("ip_address"),
+                    "date": attrs.get("date"),
+                    "host_name": attrs.get("host_name"),
+                })
+    except requests.RequestException as e:
+        print(f"  [!] VirusTotal resoluciones error: {e}")
+
+    return {
+        "subdominios": subdominios,
+        "resoluciones_pasivas": resoluciones,
+        "total_subdominios": len(subdominios),
+    }
+# ── SECURITYTRAILS (subdomain enumeration) ────────────────────────────────────
+def buscar_securitytrails(domain: str, api_key: str):
+    """Consulta SecurityTrails para subdominios y DNS histórico.
+
+    Free tier: 50 requests/month. Devuelve subdominios + historial DNS (A, AAAA, MX, NS).
+    """
+    headers = {"APIKEY": api_key, "Accept": "application/json"}
+    resultados = {"subdominios": [], "dns_history": {}}
+
+    # Subdomain listing
+    url = f"https://api.securitytrails.com/v1/domain/{domain}/subdomains"
+    params = {"children_only": "false", "include_inactive": "true"}
+
+    try:
+        r = requests.get(url, headers=headers, params=params, timeout=20)
+        if r.status_code == 429:
+            print("  [!] SecurityTrails rate limit")
+            return resultados
+        r.raise_for_status()
+        data = r.json()
+
+        for sub in data.get("subdomains", []):
+            fqdn = f"{sub}.{domain}"
+            resultados["subdominios"].append(fqdn)
+
+        resultados["endpoint_count"] = data.get("endpoint_count", 0)
+        # Also include the subdomain count from their data
+        resultados["subdomain_count"] = data.get("subdomain_count", len(resultados["subdominios"]))
+    except requests.RequestException as e:
+        print(f"  [!] SecurityTrails subdomains error para '{domain}': {e}")
+
+    time.sleep(1)
+
+    # DNS history (A records) — shows IP changes over time, useful to find old/staging IPs
+    for record_type in ["a", "aaaa", "mx", "ns"]:
+        hist_url = f"https://api.securitytrails.com/v1/history/{domain}/dns/{record_type}"
+        try:
+            r = requests.get(hist_url, headers=headers, timeout=20)
+            if r.status_code == 429:
+                print(f"  [!] SecurityTrails rate limit en DNS history ({record_type})")
+                break
+            r.raise_for_status()
+            data = r.json()
+
+            records = []
+            for record in data.get("records", []):
+                values = record.get("values", [])
+                records.append({
+                    "first_seen": record.get("first_seen"),
+                    "last_seen": record.get("last_seen"),
+                    "organizations": record.get("organizations", []),
+                    "values": [v.get("ip", v.get("value", "")) for v in values],
+                })
+            resultados["dns_history"][record_type.upper()] = records
+        except requests.RequestException as e:
+            print(f"  [!] SecurityTrails DNS history error ({record_type}): {e}")
+
+        time.sleep(1)
+
+    return resultados
 # ── SHODAN ────────────────────────────────────────────────────────────────────
 def buscar_shodan(query: str, api_key: str, max_paginas: int = 1):
     """Consulta Shodan con paginación correcta."""
@@ -616,9 +750,11 @@ if __name__ == "__main__":
     import sys
 
     parser = argparse.ArgumentParser(
-        description="OSINT reconnaissance: RIPE, BGPView, crt.sh, DNS, RIPE Stat, Shodan"
+        description="OSINT reconnaissance: RIPE, BGPView, crt.sh, DNS, RIPE Stat, VirusTotal, SecurityTrails, Shodan"
     )
     parser.add_argument("--shodan-key", default=None)
+    parser.add_argument("--vt-key", default=None, help="VirusTotal API key (free tier: 4 req/min)")
+    parser.add_argument("--st-key", default=None, help="SecurityTrails API key (free tier: 50 req/month)")
     parser.add_argument("--target", choices=list(TARGETS.keys()) + ["all"], default="all")
     parser.add_argument("--output", default="resultados.json")
     parser.add_argument("--skip-rdns", action="store_true", help="Saltar reverse DNS (lento)")
@@ -647,6 +783,7 @@ if __name__ == "__main__":
             "ripe": [], "bgpview": [], "shodan": [],
             "crtsh": [], "dns": {}, "ripestat": {}, "reverse_dns": [],
             "wayback": {}, "portscan": {},
+            "virustotal": {}, "securitytrails": {},
         }
 
         # ── RIPE NCC ──
@@ -713,6 +850,54 @@ if __name__ == "__main__":
                 else:
                     print(f"    Sin resultados")
                 time.sleep(1)
+
+        # ── VirusTotal ──
+        if args.vt_key:
+            print("\n[VirusTotal - Passive DNS]")
+            for domain in config.get("domains", []):
+                print(f"  Dominio: {domain}")
+                vt = buscar_virustotal(domain, args.vt_key)
+                todos[nombre]["virustotal"][domain] = vt
+                print(f"    Subdominios: {vt['total_subdominios']}")
+                for sub in vt.get("subdominios", [])[:20]:
+                    dns_str = ", ".join(f"{r['type']}={r['value']}" for r in sub.get("dns_records", [])[:3])
+                    print(f"    {sub['subdomain']}" + (f"  ({dns_str})" if dns_str else ""))
+                if vt["total_subdominios"] > 20:
+                    print(f"    ... y {vt['total_subdominios'] - 20} más")
+                resol = vt.get("resoluciones_pasivas", [])
+                if resol:
+                    print(f"    Resoluciones pasivas: {len(resol)}")
+                    for res in resol[:10]:
+                        print(f"      {res.get('host_name', '?')} -> {res.get('ip', '?')} ({res.get('date', '?')})")
+                time.sleep(15)  # VT rate limit
+        else:
+            print("\n[VirusTotal] Saltado (sin --vt-key)")
+
+        # ── SecurityTrails ──
+        if args.st_key:
+            print("\n[SecurityTrails - Subdomain Enum + DNS History]")
+            for domain in config.get("domains", []):
+                print(f"  Dominio: {domain}")
+                st = buscar_securitytrails(domain, args.st_key)
+                todos[nombre]["securitytrails"][domain] = st
+                subs = st.get("subdominios", [])
+                print(f"    Subdominios: {len(subs)} (endpoint_count: {st.get('endpoint_count', '?')})")
+                for s in subs[:25]:
+                    print(f"    {s}")
+                if len(subs) > 25:
+                    print(f"    ... y {len(subs) - 25} más")
+                # DNS history — highlight IP changes (staging/old infra)
+                for rtype, records in st.get("dns_history", {}).items():
+                    if records:
+                        print(f"    DNS History ({rtype}):")
+                        for rec in records[:5]:
+                            ips = ", ".join(rec.get("values", [])[:5])
+                            orgs = ", ".join(rec.get("organizations", [])[:2])
+                            print(f"      {rec.get('first_seen', '?')} - {rec.get('last_seen', '?')}: {ips}" +
+                                  (f" [{orgs}]" if orgs else ""))
+                time.sleep(1)
+        else:
+            print("\n[SecurityTrails] Saltado (sin --st-key)")
 
         # ── RIPE Stat ──
         if not args.skip_ripestat:
@@ -815,5 +1000,11 @@ if __name__ == "__main__":
         print(f"  Wayback URLs:   {wb_urls} ({wb_rutas} rutas interesantes)")
         ps_total = sum(len(v) for v in data["portscan"].values())
         print(f"  Puertos abiertos: {ps_total} en {len(data['portscan'])} IPs")
+        vt_subs = sum(d.get("total_subdominios", 0) for d in data["virustotal"].values())
+        vt_resol = sum(len(d.get("resoluciones_pasivas", [])) for d in data["virustotal"].values())
+        print(f"  VT subdominios: {vt_subs} ({vt_resol} resoluciones pasivas)")
+        st_subs = sum(len(d.get("subdominios", [])) for d in data["securitytrails"].values())
+        st_hist = sum(len(recs) for d in data["securitytrails"].values() for recs in d.get("dns_history", {}).values())
+        print(f"  ST subdominios: {st_subs} ({st_hist} DNS history records)")
         print(f"  BGPView ASNs:   {len(data['bgpview'])}")
         print(f"  Shodan hosts:   {len(data['shodan'])}")
