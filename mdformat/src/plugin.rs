@@ -95,6 +95,15 @@ pub trait ParserExtension {
         NodeHandled::Unhandled
     }
 
+    /// Pre-process the input before parsing.
+    ///
+    /// Called before the input is passed to comrak. Can be used to
+    /// protect custom syntax from being mangled by the parser
+    /// (e.g., replacing MkDocs blocks with placeholders).
+    fn pre_process(&self, input: &str) -> String {
+        input.to_string()
+    }
+
     /// Post-process the final formatted output.
     ///
     /// Called after rendering is complete. Can be used for global
@@ -182,8 +191,14 @@ impl FormatterBuilder {
     pub fn format_str(&self, input: &str) -> String {
         use comrak::Arena;
 
+        // Run pre-processing hooks
+        let mut processed = input.to_string();
+        for ext in &self.extensions {
+            processed = ext.pre_process(&processed);
+        }
+
         let arena = Arena::new();
-        let root = crate::parser::parse_with_options(input, &self.build_options(), &arena);
+        let root = crate::parser::parse_with_options(&processed, &self.build_options(), &arena);
         let mut output =
             crate::renderer::render_with_plugins(root, &self.config, &self.extensions, &self.code_formatters);
 
