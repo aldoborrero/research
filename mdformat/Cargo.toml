@@ -1,0 +1,14 @@
+[package]
+name = "mdformat"
+version = "0.1.0"
+edition = "2021"
+description = "A CommonMark-compliant, opinionated Markdown formatter"
+license = "MIT"
+
+[dependencies]
+comrak = "0.36"
+clap = { version = "4", features = ["derive"] }
+thiserror = "2"
+
+[dev-dependencies]
+pretty_assertions = "1"
