@@ -7,16 +7,30 @@ use comrak::nodes::{AstNode, NodeValue};
 
 use crate::config::Config;
 
+/// State for one level of list nesting.
+#[derive(Debug, Clone)]
+pub struct ListState {
+    /// Whether this list is tight (no blank lines between items).
+    pub tight: bool,
+    /// Whether this is an ordered list.
+    pub ordered: bool,
+    /// Current item number for ordered lists.
+    pub next_number: u32,
+}
+
 /// Render context passed through the rendering pipeline.
 pub struct RenderContext<'a> {
     /// The output buffer.
     pub output: String,
-    /// Current indentation prefix (for nested structures).
-    pub indent: String,
+    /// Stack of indent prefixes for nested structures (block quotes, list items).
+    /// Joined together they form the current line prefix.
+    pub prefix_stack: Vec<String>,
     /// Whether a blank line is needed before the next block.
     pub needs_blank_line: bool,
-    /// Stack tracking tight/loose list state.
-    pub tight_stack: Vec<bool>,
+    /// Stack tracking list state at each nesting level.
+    pub list_stack: Vec<ListState>,
+    /// Whether the cursor is at the start of a line (prefix not yet emitted).
+    pub at_line_start: bool,
     /// Formatter configuration.
     pub config: &'a Config,
 }
@@ -25,29 +39,65 @@ impl<'a> RenderContext<'a> {
     pub fn new(config: &'a Config) -> Self {
         Self {
             output: String::new(),
-            indent: String::new(),
+            prefix_stack: Vec::new(),
             needs_blank_line: false,
-            tight_stack: Vec::new(),
+            list_stack: Vec::new(),
+            at_line_start: true,
             config,
         }
     }
 
-    /// Ensure the output ends with a blank line separator between blocks.
-    pub fn ensure_blank_line(&mut self) {
-        if self.needs_blank_line && !self.output.is_empty() {
-            if !self.output.ends_with("\n\n") {
-                if !self.output.ends_with('\n') {
-                    self.output.push('\n');
-                }
-                self.output.push('\n');
+    /// Get the current combined prefix from the prefix stack.
+    pub fn current_prefix(&self) -> String {
+        self.prefix_stack.concat()
+    }
+
+    /// Write string to output, inserting the current prefix after each newline.
+    pub fn write(&mut self, s: &str) {
+        for ch in s.chars() {
+            if self.at_line_start && ch != '\n' {
+                let prefix = self.current_prefix();
+                self.output.push_str(&prefix);
+                self.at_line_start = false;
+            }
+            self.output.push(ch);
+            if ch == '\n' {
+                self.at_line_start = true;
             }
         }
+    }
+
+    /// Ensure the output has a blank line at the end.
+    /// Emits the current prefix on the blank line (important for block quotes).
+    pub fn ensure_blank_line(&mut self) {
+        if self.output.is_empty() {
+            self.needs_blank_line = false;
+            return;
+        }
+        if !self.output.ends_with('\n') {
+            self.output.push('\n');
+        }
+        // Emit a blank line with the current prefix (trimmed of trailing spaces).
+        // For block quotes this produces ">\n" instead of just "\n".
+        let prefix = self.current_prefix();
+        let trimmed = prefix.trim_end();
+        if !trimmed.is_empty() {
+            // Check if the output already ends with a prefixed blank line
+            let expected = format!("\n{}\n", trimmed);
+            if !self.output.ends_with(&expected) {
+                self.output.push_str(trimmed);
+                self.output.push('\n');
+            }
+        } else if !self.output.ends_with("\n\n") {
+            self.output.push('\n');
+        }
+        self.at_line_start = true;
         self.needs_blank_line = false;
     }
 
     /// Whether we are currently inside a tight list.
     pub fn is_tight(&self) -> bool {
-        self.tight_stack.last().copied().unwrap_or(false)
+        self.list_stack.last().map_or(false, |s| s.tight)
     }
 }
 
@@ -72,8 +122,8 @@ pub fn render<'a>(root: &'a AstNode<'a>, config: &Config) -> String {
 
 /// Dispatch to the appropriate renderer on node entry.
 fn render_node_enter(node: &AstNode<'_>, ctx: &mut RenderContext<'_>) {
-    let data = node.data.borrow();
-    match &data.value {
+    let nv = node.data.borrow().value.clone();
+    match &nv {
         NodeValue::Document => {}
         NodeValue::Heading(_) => blocks::heading_enter(node, ctx),
         NodeValue::Paragraph => blocks::paragraph_enter(node, ctx),
@@ -92,14 +142,14 @@ fn render_node_enter(node: &AstNode<'_>, ctx: &mut RenderContext<'_>) {
         NodeValue::SoftBreak => inlines::soft_break(ctx),
         NodeValue::LineBreak => inlines::hard_break(ctx),
         NodeValue::HtmlInline(_) => inlines::html_inline(node, ctx),
-        _ => {} // Other node types handled as needed
+        _ => {}
     }
 }
 
 /// Dispatch to the appropriate renderer on node exit.
 fn render_node_leave(node: &AstNode<'_>, ctx: &mut RenderContext<'_>) {
-    let data = node.data.borrow();
-    match &data.value {
+    let nv = node.data.borrow().value.clone();
+    match &nv {
         NodeValue::Document => {}
         NodeValue::Heading(_) => blocks::heading_leave(ctx),
         NodeValue::Paragraph => blocks::paragraph_leave(node, ctx),
