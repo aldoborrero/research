@@ -1,23 +1,18 @@
 //! Block-level renderers: headings, paragraphs, code blocks, lists,
 //! block quotes, thematic breaks, and HTML blocks.
 
-use comrak::nodes::{
-    AstNode, ListType, NodeCodeBlock, NodeHeading, NodeHtmlBlock, NodeList, NodeValue,
-};
+use comrak::nodes::{AstNode, ListType, NodeList};
 
 use super::{ListState, RenderContext};
 
 /// ATX heading opening: emit `# ` prefix.
-pub fn heading_enter(node: &AstNode<'_>, ctx: &mut RenderContext<'_>) {
-    let data = node.data.borrow();
-    if let NodeValue::Heading(NodeHeading { level, .. }) = data.value {
-        if ctx.needs_blank_line {
-            ctx.ensure_blank_line();
-        }
-        let hashes: String = std::iter::repeat('#').take(level as usize).collect();
-        ctx.write(&hashes);
-        ctx.write(" ");
+pub fn heading_enter(level: u8, ctx: &mut RenderContext<'_>) {
+    if ctx.needs_blank_line {
+        ctx.ensure_blank_line();
     }
+    let hashes: String = std::iter::repeat('#').take(level as usize).collect();
+    ctx.write(&hashes);
+    ctx.write(" ");
 }
 
 /// ATX heading closing: emit newline.
@@ -27,14 +22,14 @@ pub fn heading_leave(ctx: &mut RenderContext<'_>) {
 }
 
 /// Paragraph opening.
-pub fn paragraph_enter(_node: &AstNode<'_>, ctx: &mut RenderContext<'_>) {
+pub fn paragraph_enter(ctx: &mut RenderContext<'_>) {
     if ctx.needs_blank_line && !ctx.is_tight() {
         ctx.ensure_blank_line();
     }
 }
 
 /// Paragraph closing.
-pub fn paragraph_leave(_node: &AstNode<'_>, ctx: &mut RenderContext<'_>) {
+pub fn paragraph_leave(ctx: &mut RenderContext<'_>) {
     ctx.write("\n");
     ctx.needs_blank_line = true;
 }
@@ -43,20 +38,8 @@ pub fn paragraph_leave(_node: &AstNode<'_>, ctx: &mut RenderContext<'_>) {
 ///
 /// Always uses backtick fences. The fence length is the minimum (3) unless
 /// the content contains a run of backticks that would conflict.
-pub fn code_block_enter(node: &AstNode<'_>, ctx: &mut RenderContext<'_>) {
-    let data = node.data.borrow();
-    if let NodeValue::CodeBlock(ref cb) = data.value {
-        render_code_block(ctx, &cb.info, &cb.literal);
-    }
-}
-
-/// Render a code block with explicit info/literal (used by plugin code formatters).
-pub fn code_block_enter_with(
-    _node: &AstNode<'_>,
-    ctx: &mut RenderContext<'_>,
-    cb: &NodeCodeBlock,
-) {
-    render_code_block(ctx, &cb.info, &cb.literal);
+pub fn code_block_enter(info: &str, literal: &str, ctx: &mut RenderContext<'_>) {
+    render_code_block(ctx, info, literal);
 }
 
 fn render_code_block(ctx: &mut RenderContext<'_>, info: &str, literal: &str) {
@@ -106,25 +89,16 @@ fn code_fence_length(literal: &str) -> usize {
 }
 
 /// List opening: push tight/loose state.
-pub fn list_enter(node: &AstNode<'_>, ctx: &mut RenderContext<'_>) {
-    let data = node.data.borrow();
-    if let NodeValue::List(NodeList {
-        list_type,
-        tight,
-        start,
-        ..
-    }) = data.value
-    {
-        if ctx.needs_blank_line {
-            ctx.ensure_blank_line();
-        }
-
-        ctx.list_stack.push(ListState {
-            tight,
-            ordered: list_type == ListType::Ordered,
-            next_number: start as u32,
-        });
+pub fn list_enter(list: &NodeList, ctx: &mut RenderContext<'_>) {
+    if ctx.needs_blank_line {
+        ctx.ensure_blank_line();
     }
+
+    ctx.list_stack.push(ListState {
+        tight: list.tight,
+        ordered: list.list_type == ListType::Ordered,
+        next_number: list.start as u32,
+    });
 }
 
 /// List closing: pop list state.
@@ -135,6 +109,12 @@ pub fn list_leave(ctx: &mut RenderContext<'_>) {
 
 /// List item opening: emit bullet or number marker.
 pub fn list_item_enter(node: &AstNode<'_>, ctx: &mut RenderContext<'_>) {
+    emit_list_marker(node, ctx);
+}
+
+/// Shared logic for emitting a list marker (bullet or number) and
+/// setting up the indent prefix for continuation lines.
+pub fn emit_list_marker(node: &AstNode<'_>, ctx: &mut RenderContext<'_>) {
     let is_first_item = node.previous_sibling().is_none();
 
     let (ordered, tight) = ctx
@@ -143,10 +123,8 @@ pub fn list_item_enter(node: &AstNode<'_>, ctx: &mut RenderContext<'_>) {
         .map(|s| (s.ordered, s.tight))
         .unwrap_or((false, true));
 
-    if !is_first_item {
-        if !tight {
-            ctx.ensure_blank_line();
-        }
+    if !is_first_item && !tight {
+        ctx.ensure_blank_line();
     }
 
     let marker = if ordered {
@@ -163,7 +141,7 @@ pub fn list_item_enter(node: &AstNode<'_>, ctx: &mut RenderContext<'_>) {
     ctx.write(&marker);
 
     // Push indent for continuation lines of this item
-    ctx.prefix_stack.push(indent);
+    ctx.push_prefix(indent);
 
     // Advance the counter
     if let Some(state) = ctx.list_stack.last_mut() {
@@ -179,26 +157,26 @@ pub fn list_item_enter(node: &AstNode<'_>, ctx: &mut RenderContext<'_>) {
 
 /// List item closing.
 pub fn list_item_leave(ctx: &mut RenderContext<'_>) {
-    ctx.prefix_stack.pop();
+    ctx.pop_prefix();
     ctx.needs_blank_line = false;
 }
 
 /// Block quote opening: push `> ` prefix.
-pub fn block_quote_enter(_node: &AstNode<'_>, ctx: &mut RenderContext<'_>) {
+pub fn block_quote_enter(ctx: &mut RenderContext<'_>) {
     if ctx.needs_blank_line {
         ctx.ensure_blank_line();
     }
-    ctx.prefix_stack.push("> ".to_string());
+    ctx.push_prefix("> ".to_string());
 }
 
 /// Block quote closing: pop `> ` prefix.
 pub fn block_quote_leave(ctx: &mut RenderContext<'_>) {
-    ctx.prefix_stack.pop();
+    ctx.pop_prefix();
     ctx.needs_blank_line = true;
 }
 
 /// Thematic break: emit `___`.
-pub fn thematic_break(_node: &AstNode<'_>, ctx: &mut RenderContext<'_>) {
+pub fn thematic_break(ctx: &mut RenderContext<'_>) {
     if ctx.needs_blank_line {
         ctx.ensure_blank_line();
     }
@@ -207,14 +185,11 @@ pub fn thematic_break(_node: &AstNode<'_>, ctx: &mut RenderContext<'_>) {
 }
 
 /// HTML block: pass through unchanged.
-pub fn html_block_enter(node: &AstNode<'_>, ctx: &mut RenderContext<'_>) {
-    let data = node.data.borrow();
-    if let NodeValue::HtmlBlock(NodeHtmlBlock { ref literal, .. }) = data.value {
-        if ctx.needs_blank_line {
-            ctx.ensure_blank_line();
-        }
-        ctx.write(literal.trim_end());
-        ctx.write("\n");
-        ctx.needs_blank_line = true;
+pub fn html_block_enter(literal: &str, ctx: &mut RenderContext<'_>) {
+    if ctx.needs_blank_line {
+        ctx.ensure_blank_line();
     }
+    ctx.write(literal.trim_end());
+    ctx.write("\n");
+    ctx.needs_blank_line = true;
 }

@@ -61,6 +61,14 @@ fn gfm_table_with_inline_formatting() {
 }
 
 #[test]
+fn gfm_table_with_strikethrough() {
+    let input = "| A | B |\n|---|---|\n| ~~deleted~~ | ok |";
+    let output = gfm(input);
+    assert!(output.contains("~~deleted~~"), "should preserve strikethrough in table: {}", output);
+    assert_gfm_idempotent(input);
+}
+
+#[test]
 fn gfm_table_idempotent() {
     assert_gfm_idempotent("| A | B |\n|---|---|\n| 1 | 2 |");
 }
@@ -190,4 +198,19 @@ fn builder_without_plugins_matches_format_str() {
     let from_builder = FormatterBuilder::new().format_str(input);
     let from_fn = mdformat::format_str(input);
     assert_eq!(from_builder, from_fn);
+}
+
+// ─── Line ending normalization ──────────────────────────────
+
+#[test]
+fn crlf_line_endings() {
+    use mdformat::config::{Config, LineEnding};
+
+    let config = Config {
+        line_ending: LineEnding::CrLf,
+    };
+    let output = FormatterBuilder::new()
+        .config(config)
+        .format_str("# Hello\n\nWorld");
+    assert_eq!(output, "# Hello\r\n\r\nWorld\r\n");
 }

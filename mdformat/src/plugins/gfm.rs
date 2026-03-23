@@ -96,8 +96,8 @@ impl ParserExtension for GfmPlugin {
                 NodeHandled::Handled
             }
             NodeValue::Strikethrough => {
-                let state = self.state.borrow();
-                if state.in_table {
+                let in_table = self.state.borrow().in_table;
+                if in_table {
                     self.state.borrow_mut().current_cell.push_str("~~");
                 } else {
                     ctx.write("~~");
@@ -128,11 +128,11 @@ impl ParserExtension for GfmPlugin {
                 self.state.borrow_mut().current_cell.push_str("**");
                 NodeHandled::Handled
             }
-            NodeValue::Link(ref link) if self.state.borrow().in_table => {
+            NodeValue::Link(_) if self.state.borrow().in_table => {
                 self.state.borrow_mut().current_cell.push('[');
                 NodeHandled::Handled
             }
-            NodeValue::Image(ref link) if self.state.borrow().in_table => {
+            NodeValue::Image(_) if self.state.borrow().in_table => {
                 self.state.borrow_mut().current_cell.push_str("![");
                 NodeHandled::Handled
             }
@@ -186,7 +186,7 @@ impl ParserExtension for GfmPlugin {
             }
             NodeValue::TaskItem(_) => {
                 // TaskItem is like Item — pop the prefix and reset blank line
-                ctx.prefix_stack.pop();
+                ctx.pop_prefix();
                 ctx.needs_blank_line = false;
                 NodeHandled::Handled
             }
@@ -288,10 +288,10 @@ fn render_separator(
         let w = widths[i];
         let sep = match align {
             TableAlignment::Left => format!(" :{} |", "-".repeat(w - 1)),
-            TableAlignment::Right => format!(" {}:|", "-".repeat(w - 1)),
+            TableAlignment::Right => format!(" {}: |", "-".repeat(w - 1)),
             TableAlignment::Center => {
                 let inner = if w >= 2 { w - 2 } else { 1 };
-                format!(" :{}:|", "-".repeat(inner))
+                format!(" :{}: |", "-".repeat(inner))
             }
             TableAlignment::None => format!(" {} |", "-".repeat(w)),
         };
@@ -306,44 +306,13 @@ fn task_item_enter(
     ctx: &mut RenderContext<'_>,
     checked: Option<char>,
 ) {
-    let is_first_item = node.previous_sibling().is_none();
+    // Reuse shared list marker logic
+    crate::renderer::blocks::emit_list_marker(node, ctx);
 
-    let (ordered, tight) = ctx
-        .list_stack
-        .last()
-        .map(|s| (s.ordered, s.tight))
-        .unwrap_or((false, true));
-
-    if !is_first_item && !tight {
-        ctx.ensure_blank_line();
-    }
-
-    let marker = if ordered {
-        let num = ctx.list_stack.last().map(|s| s.next_number).unwrap_or(1);
-        format!("{}. ", num)
-    } else {
-        "- ".to_string()
-    };
-
-    let indent_width = marker.len();
-    let indent: String = std::iter::repeat(' ').take(indent_width).collect();
-
-    ctx.write(&marker);
-
-    // Add checkbox
+    // Add checkbox after the marker
     match checked {
         Some('x') | Some('X') => ctx.write("[x] "),
         Some(_) => ctx.write("[x] "),
         None => ctx.write("[ ] "),
     }
-
-    ctx.prefix_stack.push(indent);
-
-    if let Some(state) = ctx.list_stack.last_mut() {
-        if state.ordered {
-            state.next_number += 1;
-        }
-    }
-
-    ctx.needs_blank_line = false;
 }
