@@ -1,9 +1,31 @@
 //! mdformat — A CommonMark-compliant, opinionated Markdown formatter.
 //!
 //! Rust port of [hukkin/mdformat](https://github.com/hukkin/mdformat).
+//!
+//! # Plugin support
+//!
+//! mdformat supports two types of plugins:
+//!
+//! - **Parser extensions** ([`plugin::ParserExtension`]) — add support for syntax
+//!   beyond CommonMark (e.g., GFM tables, strikethrough, admonitions).
+//! - **Code formatters** ([`plugin::CodeFormatter`]) — format code inside fenced
+//!   code blocks for specific languages.
+//!
+//! Use [`plugin::FormatterBuilder`] to configure plugins:
+//!
+//! ```
+//! use mdformat::plugin::FormatterBuilder;
+//! use mdformat::plugins::gfm::GfmPlugin;
+//!
+//! let output = FormatterBuilder::new()
+//!     .parser_extension(GfmPlugin::new())
+//!     .format_str("| A | B |\n|---|---|\n| 1 | 2 |");
+//! ```
 
 pub mod config;
 pub mod parser;
+pub mod plugin;
+pub mod plugins;
 pub mod renderer;
 
 use comrak::Arena;

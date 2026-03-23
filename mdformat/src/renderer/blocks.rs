@@ -45,37 +45,45 @@ pub fn paragraph_leave(_node: &AstNode<'_>, ctx: &mut RenderContext<'_>) {
 /// the content contains a run of backticks that would conflict.
 pub fn code_block_enter(node: &AstNode<'_>, ctx: &mut RenderContext<'_>) {
     let data = node.data.borrow();
-    if let NodeValue::CodeBlock(NodeCodeBlock {
-        ref info,
-        ref literal,
-        ..
-    }) = data.value
-    {
-        if ctx.needs_blank_line {
-            ctx.ensure_blank_line();
-        }
-
-        let fence_len = code_fence_length(literal);
-        let fence: String = std::iter::repeat('`').take(fence_len).collect();
-
-        ctx.write(&fence);
-        if !info.is_empty() {
-            ctx.write(info);
-        }
-        ctx.write("\n");
-
-        // Write content — write() handles prefix insertion at line starts
-        if !literal.is_empty() {
-            ctx.write(literal);
-            if !literal.ends_with('\n') {
-                ctx.write("\n");
-            }
-        }
-
-        ctx.write(&fence);
-        ctx.write("\n");
-        ctx.needs_blank_line = true;
+    if let NodeValue::CodeBlock(ref cb) = data.value {
+        render_code_block(ctx, &cb.info, &cb.literal);
     }
+}
+
+/// Render a code block with explicit info/literal (used by plugin code formatters).
+pub fn code_block_enter_with(
+    _node: &AstNode<'_>,
+    ctx: &mut RenderContext<'_>,
+    cb: &NodeCodeBlock,
+) {
+    render_code_block(ctx, &cb.info, &cb.literal);
+}
+
+fn render_code_block(ctx: &mut RenderContext<'_>, info: &str, literal: &str) {
+    if ctx.needs_blank_line {
+        ctx.ensure_blank_line();
+    }
+
+    let fence_len = code_fence_length(literal);
+    let fence: String = std::iter::repeat('`').take(fence_len).collect();
+
+    ctx.write(&fence);
+    if !info.is_empty() {
+        ctx.write(info);
+    }
+    ctx.write("\n");
+
+    // Write content — write() handles prefix insertion at line starts
+    if !literal.is_empty() {
+        ctx.write(literal);
+        if !literal.ends_with('\n') {
+            ctx.write("\n");
+        }
+    }
+
+    ctx.write(&fence);
+    ctx.write("\n");
+    ctx.needs_blank_line = true;
 }
 
 /// Determine the minimum fence length (>= 3) for a code block whose

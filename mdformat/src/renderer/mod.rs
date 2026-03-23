@@ -6,6 +6,7 @@ use comrak::arena_tree::NodeEdge;
 use comrak::nodes::{AstNode, NodeValue};
 
 use crate::config::Config;
+use crate::plugin::{CodeFormatter, NodeHandled, ParserExtension};
 
 /// State for one level of list nesting.
 #[derive(Debug, Clone)]
@@ -101,14 +102,39 @@ impl<'a> RenderContext<'a> {
     }
 }
 
-/// Render a comrak AST into a normalized Markdown string.
+/// Render a comrak AST into a normalized Markdown string (no plugins).
 pub fn render<'a>(root: &'a AstNode<'a>, config: &Config) -> String {
+    render_with_plugins(root, config, &[], &[])
+}
+
+/// Render a comrak AST into a normalized Markdown string with plugin support.
+pub fn render_with_plugins<'a>(
+    root: &'a AstNode<'a>,
+    config: &Config,
+    extensions: &[Box<dyn ParserExtension>],
+    code_formatters: &[Box<dyn CodeFormatter>],
+) -> String {
     let mut ctx = RenderContext::new(config);
 
     for edge in root.traverse() {
         match edge {
-            NodeEdge::Start(node) => render_node_enter(node, &mut ctx),
-            NodeEdge::End(node) => render_node_leave(node, &mut ctx),
+            NodeEdge::Start(node) => {
+                // Let plugins handle the node first
+                let handled = extensions
+                    .iter()
+                    .any(|ext| ext.render_node_enter(node, &mut ctx) == NodeHandled::Handled);
+                if !handled {
+                    render_node_enter(node, &mut ctx, code_formatters);
+                }
+            }
+            NodeEdge::End(node) => {
+                let handled = extensions
+                    .iter()
+                    .any(|ext| ext.render_node_leave(node, &mut ctx) == NodeHandled::Handled);
+                if !handled {
+                    render_node_leave(node, &mut ctx);
+                }
+            }
         }
     }
 
@@ -121,13 +147,28 @@ pub fn render<'a>(root: &'a AstNode<'a>, config: &Config) -> String {
 }
 
 /// Dispatch to the appropriate renderer on node entry.
-fn render_node_enter(node: &AstNode<'_>, ctx: &mut RenderContext<'_>) {
+fn render_node_enter(
+    node: &AstNode<'_>,
+    ctx: &mut RenderContext<'_>,
+    code_formatters: &[Box<dyn CodeFormatter>],
+) {
     let nv = node.data.borrow().value.clone();
     match &nv {
         NodeValue::Document => {}
         NodeValue::Heading(_) => blocks::heading_enter(node, ctx),
         NodeValue::Paragraph => blocks::paragraph_enter(node, ctx),
-        NodeValue::CodeBlock(_) => blocks::code_block_enter(node, ctx),
+        NodeValue::CodeBlock(cb) => {
+            // Apply code formatters if any match the language
+            let formatted = find_code_formatter(code_formatters, &cb.info)
+                .and_then(|f| f.format_code(&cb.literal, &cb.info));
+            if let Some(code) = formatted {
+                let mut patched = cb.clone();
+                patched.literal = code;
+                blocks::code_block_enter_with(node, ctx, &patched);
+            } else {
+                blocks::code_block_enter(node, ctx);
+            }
+        }
         NodeValue::List(_) => blocks::list_enter(node, ctx),
         NodeValue::Item(_) => blocks::list_item_enter(node, ctx),
         NodeValue::BlockQuote => blocks::block_quote_enter(node, ctx),
@@ -163,4 +204,18 @@ fn render_node_leave(node: &AstNode<'_>, ctx: &mut RenderContext<'_>) {
         NodeValue::Image(_) => inlines::image_leave(node, ctx),
         _ => {}
     }
+}
+
+/// Find a code formatter that matches the given info string.
+fn find_code_formatter<'a>(
+    formatters: &'a [Box<dyn CodeFormatter>],
+    info: &str,
+) -> Option<&'a dyn CodeFormatter> {
+    // The info string may contain more than just the language (e.g., "rust,linenos").
+    // Match against the first word.
+    let lang = info.split_whitespace().next().unwrap_or("");
+    formatters
+        .iter()
+        .find(|f| f.lang().eq_ignore_ascii_case(lang))
+        .map(|f| f.as_ref())
 }
