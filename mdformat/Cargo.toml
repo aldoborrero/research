@@ -8,7 +8,9 @@ license = "MIT"
 [dependencies]
 comrak = "0.36"
 clap = { version = "4", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
 thiserror = "2"
+toml = "0.8"
 
 [dev-dependencies]
 pretty_assertions = "1"

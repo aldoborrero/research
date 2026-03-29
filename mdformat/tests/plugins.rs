@@ -206,9 +206,8 @@ fn builder_without_plugins_matches_format_str() {
 fn crlf_line_endings() {
     use mdformat::config::{Config, LineEnding};
 
-    let config = Config {
-        line_ending: LineEnding::CrLf,
-    };
+    let mut config = Config::default();
+    config.line_ending = LineEnding::CrLf;
     let output = FormatterBuilder::new()
         .config(config)
         .format_str("# Hello\n\nWorld");

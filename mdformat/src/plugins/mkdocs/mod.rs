@@ -126,7 +126,7 @@ impl ParserExtension for MkDocsPlugin {
     /// optionally protects inline math expressions.
     fn pre_process(&self, input: &str) -> String {
         // Protect inline math if enabled
-        let input = if self.config.no_math {
+        let input = if self.config.no_mkdocs_math {
             input.to_string()
         } else {
             protect_inline_math(input)
@@ -184,7 +184,7 @@ impl ParserExtension for MkDocsPlugin {
         };
 
         // Restore math if it was protected
-        let output = if self.config.no_math {
+        let output = if self.config.no_mkdocs_math {
             output
         } else {
             restore_math(&output)

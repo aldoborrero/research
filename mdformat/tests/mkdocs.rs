@@ -1,3 +1,4 @@
+use mdformat::config::Config;
 use mdformat::plugin::FormatterBuilder;
 use mdformat::plugins::mkdocs::config::MkDocsConfig;
 use mdformat::plugins::mkdocs::MkDocsPlugin;
@@ -131,7 +132,7 @@ fn mkdocs_display_math_preserved() {
 #[test]
 fn mkdocs_math_disabled() {
     let mut config = MkDocsConfig::default();
-    config.no_math = true;
+    config.no_mkdocs_math = true;
     let input = "The formula $x^2$ here.\n";
     let output = mkdocs_format_with_config(input, config);
     // With math disabled, $ is treated as regular text
@@ -225,4 +226,78 @@ fn mkdocs_mixed_document_idempotent() {
     let first = mkdocs_format(input);
     let second = mkdocs_format(&first);
     assert_eq!(first, second, "mixed document is idempotent");
+}
+
+// ─── Config File ────────────────────────────────────────────
+
+#[test]
+fn mkdocs_config_from_toml_string() {
+    let toml_str = r#"
+end_of_line = "lf"
+
+[plugin.mkdocs]
+no_mkdocs_math = true
+align_semantic_breaks_in_lists = true
+"#;
+    let config = Config::from_str(toml_str).unwrap();
+    let mkdocs_cfg: MkDocsConfig = config.plugin_config("mkdocs").unwrap();
+
+    assert!(mkdocs_cfg.no_mkdocs_math);
+    assert!(mkdocs_cfg.align_semantic_breaks_in_lists);
+    assert!(!mkdocs_cfg.ignore_missing_references);
+    assert_eq!(mkdocs_cfg.indent_count, 4); // default
+}
+
+#[test]
+fn mkdocs_config_defaults_when_section_missing() {
+    let config = Config::from_str("").unwrap();
+    let mkdocs_cfg: MkDocsConfig = config.plugin_config("mkdocs").unwrap();
+
+    assert!(!mkdocs_cfg.no_mkdocs_math);
+    assert!(!mkdocs_cfg.align_semantic_breaks_in_lists);
+    assert!(!mkdocs_cfg.ignore_missing_references);
+    assert_eq!(mkdocs_cfg.indent_count, 4);
+}
+
+#[test]
+fn mkdocs_config_custom_indent() {
+    let toml_str = r#"
+[plugin.mkdocs]
+indent_count = 2
+"#;
+    let config = Config::from_str(toml_str).unwrap();
+    let mkdocs_cfg: MkDocsConfig = config.plugin_config("mkdocs").unwrap();
+    assert_eq!(mkdocs_cfg.indent_count, 2);
+}
+
+#[test]
+fn mkdocs_config_cli_override_via_merge() {
+    let mut config = Config::from_str("[plugin.mkdocs]\nno_mkdocs_math = false").unwrap();
+
+    // Simulate CLI override
+    config.merge_plugin_value("mkdocs", "no_mkdocs_math", toml::Value::Boolean(true));
+
+    let mkdocs_cfg: MkDocsConfig = config.plugin_config("mkdocs").unwrap();
+    assert!(mkdocs_cfg.no_mkdocs_math, "CLI override takes effect");
+}
+
+#[test]
+fn mkdocs_config_applied_to_formatter() {
+    let toml_str = r#"
+[plugin.mkdocs]
+no_mkdocs_math = true
+"#;
+    let config = Config::from_str(toml_str).unwrap();
+    let mkdocs_cfg: MkDocsConfig = config.plugin_config("mkdocs").unwrap();
+
+    let input = "The formula $x^2$ here.\n";
+    let output = FormatterBuilder::new()
+        .config(config)
+        .parser_extension(MkDocsPlugin::new(mkdocs_cfg))
+        .format_str(input);
+
+    // With no_mkdocs_math=true, $ signs are not protected, comrak sees them as text
+    assert!(output.contains("$"), "dollar signs still present");
+    // The key thing: no <span> wrappers remain
+    assert!(!output.contains("<span"), "no math spans in output");
 }
